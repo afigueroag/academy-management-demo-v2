@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="es">
+<!--
+  ACADEMY MANAGEMENT – DEMO INTERACTIVO
+  ======================================
+  • Selector de rol (arriba a la derecha, fondo oscuro): cambia entre Admin / Receptionist /
+    Instructor / Student al instante – reasigna currentUserId y re-renderiza toda la UI.
+  • Botón "Reiniciar demo" (header): elimina el estado de localStorage y vuelve a sembrar los
+    datos iniciales.
+  • Sin backend real: todo el estado vive en window.db (mirrors schema.sql). La capa api.*
+    simula los endpoints de openapi.yaml con la misma forma de respuesta.
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Academy Management – Demo</title>
+<style>
+/* ── VARIABLES ─────────────────────────────────────────── */
+:root{
+  --accent:#4F46E5;--accent-h:#4338CA;--accent-l:#EEF2FF;
+  --sidebar-bg:#1E1B4B;--sidebar-txt:#C7D2FE;--sidebar-act:rgba(255,255,255,.12);
+  --bg:#F3F4F6;--surface:#fff;--border:#E5E7EB;
+  --text:#111827;--muted:#6B7280;
+  --success:#10B981;--success-l:#D1FAE5;
+  --warning:#F59E0B;--warning-l:#FEF3C7;
+  --error:#EF4444;--error-l:#FEE2E2;
+  --radius:10px;--radius-sm:6px;
+  --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
+  --shadow-md:0 4px 6px rgba(0,0,0,.07),0 2px 4px rgba(0,0,0,.06);
+  --shadow-lg:0 10px 15px rgba(0,0,0,.1),0 4px 6px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:14px;color:var(--text);background:var(--bg);line-height:1.5;}
+h1,h2,h3,h4{font-weight:600;line-height:1.3;margin:0;}
+a{color:var(--accent);text-decoration:none;}
+button{cursor:pointer;font:inherit;border:none;background:none;}
+input,select,textarea{font:inherit;outline:none;}
+table{border-collapse:collapse;width:100%;}
+
+/* ── SHELL ─────────────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100vh;}
+#app-header{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;z-index:20;box-shadow:var(--shadow);}
+.h-logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;color:var(--accent);}
+.h-logo-icon{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;flex-shrink:0;}
+.h-acad{font-size:12px;color:var(--muted);font-weight:500;}
+.h-spacer{flex:1;}
+.h-user{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;}
+.h-avatar{width:30px;height:30px;border-radius:50%;background:var(--accent-l);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;}
+
+#app-body{display:flex;flex:1;overflow:hidden;}
+#sidebar{width:216px;background:var(--sidebar-bg);color:var(--sidebar-txt);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;padding:8px 0;}
+.sb-section{margin:4px 0;}
+.sb-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.3);padding:0 14px 4px;margin-top:8px;}
+.sb-item{display:flex;align-items:center;gap:9px;padding:8px 14px;color:var(--sidebar-txt);font-size:13px;font-weight:500;border-radius:var(--radius-sm);margin:1px 7px;cursor:pointer;transition:background .15s;}
+.sb-item:hover{background:var(--sidebar-act);}
+.sb-item.active{background:var(--accent);color:#fff;}
+.sb-item svg{flex-shrink:0;opacity:.7;}
+.sb-item.active svg{opacity:1;}
+.sb-bottom{margin-top:auto;border-top:1px solid rgba(255,255,255,.1);padding-top:6px;}
+#page-content{flex:1;overflow-y:auto;}
+.page{padding:24px;max-width:1400px;}
+.page-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;gap:12px;}
+.page-title{font-size:19px;font-weight:700;}
+.page-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+
+/* ── ROLE BAR ──────────────────────────────────────────── */
+#role-bar{position:fixed;top:0;right:0;z-index:1000;background:rgba(15,10,40,.9);backdrop-filter:blur(8px);color:#fff;display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom-left-radius:10px;font-size:12px;}
+#role-bar label{opacity:.55;font-size:11px;}
+#role-select{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:3px 7px;font-size:12px;cursor:pointer;}
+#role-select option{background:#1E1B4B;}
+.btn-reset{padding:4px 10px;font-size:11px;background:rgba(239,68,68,.2);color:#FCA5A5;border-radius:5px;font-weight:500;border:1px solid rgba(239,68,68,.3);}
+.btn-reset:hover{background:rgba(239,68,68,.35);}
+
+/* ── SCORECARDS ────────────────────────────────────────── */
+.scorecards{display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:16px;margin-bottom:24px;}
+.scorecard{background:var(--surface);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);}
+.sc-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
+.sc-value{font-size:24px;font-weight:700;line-height:1.2;}
+.sc-sub{font-size:11px;color:var(--muted);margin-top:3px;}
+
+/* ── BUTTONS ───────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;transition:all .15s;white-space:nowrap;}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover{background:var(--accent-h);}
+.btn-secondary{background:var(--surface);color:var(--text);border:1px solid var(--border);}
+.btn-secondary:hover{background:var(--bg);}
+.btn-danger{background:var(--error-l);color:var(--error);}
+.btn-danger:hover{background:#FECACA;}
+.btn-ghost{color:var(--accent);padding:4px 8px;}
+.btn-ghost:hover{background:var(--accent-l);border-radius:var(--radius-sm);}
+.btn-sm{padding:4px 10px;font-size:12px;}
+.btn-icon{width:30px;height:30px;padding:0;display:inline-flex;align-items:center;justify-content:center;}
+
+/* ── BADGES & CHIPS ────────────────────────────────────── */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600;}
+.badge-success{background:var(--success-l);color:#065F46;}
+.badge-warning{background:var(--warning-l);color:#92400E;}
+.badge-error{background:var(--error-l);color:#991B1B;}
+.badge-muted{background:var(--bg);color:var(--muted);border:1px solid var(--border);}
+.badge-accent{background:var(--accent-l);color:var(--accent);}
+.chip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:100px;font-size:11px;font-weight:500;color:#fff;}
+
+/* ── CARDS ─────────────────────────────────────────────── */
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);}
+.card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.card-title{font-size:14px;font-weight:600;}
+.card-body{padding:16px 18px;}
+
+/* ── TABLES ────────────────────────────────────────────── */
+.tbl-wrap{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+.tbl{width:100%;border-collapse:collapse;}
+.tbl th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tbody tr:hover td{background:#FAFAFA;}
+.tbl-toolbar{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);}
+
+/* ── FORMS ─────────────────────────────────────────────── */
+.fg{margin-bottom:15px;}
+.fg label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;}
+.fc{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;transition:border-color .15s;}
+.fc:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-l);}
+.fc-row{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
+.fc-actions{display:flex;gap:8px;padding-top:6px;margin-top:6px;border-top:1px solid var(--border);}
+.fc-search{padding:7px 11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;min-width:200px;}
+.fc-search:focus{border-color:var(--accent);}
+
+/* ── PANEL (slide-in) ──────────────────────────────────── */
+#panel-overlay{position:fixed;inset:0;z-index:50;display:none;}
+#panel-overlay.open{display:flex;}
+.panel-bd{position:absolute;inset:0;background:rgba(0,0,0,.4);}
+.panel-drawer{position:absolute;right:0;top:0;bottom:0;width:430px;background:var(--surface);box-shadow:var(--shadow-lg);overflow-y:auto;transform:translateX(100%);transition:transform .25s ease;z-index:1;}
+#panel-overlay.open .panel-drawer{transform:translateX(0);}
+.panel-hdr{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:2;}
+.panel-title{font-size:15px;font-weight:600;}
+.panel-close{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--muted);}
+.panel-close:hover{background:var(--bg);}
+.panel-body{padding:22px;}
+
+/* ── MODAL ─────────────────────────────────────────────── */
+#modal-overlay{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;}
+#modal-overlay.open{display:flex;}
+.modal-bd{position:absolute;inset:0;background:rgba(0,0,0,.5);}
+.modal-box{position:relative;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-lg);width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;z-index:1;}
+.modal-hdr{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.modal-title{font-size:15px;font-weight:600;}
+.modal-body{padding:22px;}
+.modal-footer{padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;}
+
+/* ── TOASTS ────────────────────────────────────────────── */
+#toast-container{position:fixed;bottom:22px;right:22px;z-index:999;display:flex;flex-direction:column;gap:7px;}
+.toast{background:var(--text);color:#fff;padding:11px 15px;border-radius:var(--radius-sm);font-size:13px;box-shadow:var(--shadow-md);display:flex;align-items:center;gap:8px;min-width:230px;max-width:340px;animation:toastIn .2s ease;}
+.toast.success{background:#065F46;}
+.toast.error{background:#991B1B;}
+.toast.warning{background:#92400E;}
+@keyframes toastIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+
+/* ── TABS ──────────────────────────────────────────────── */
+.tabs{display:flex;gap:2px;background:var(--bg);padding:3px;border-radius:var(--radius-sm);width:fit-content;}
+.tab-btn{padding:5px 13px;border-radius:var(--radius-sm);font-size:12px;font-weight:500;color:var(--muted);transition:all .15s;}
+.tab-btn.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow);}
+.tab-btn:hover:not(.active){background:rgba(0,0,0,.04);}
+.dash-tab-bar{display:flex;border-bottom:1px solid var(--border);background:var(--surface);padding:0 24px;}
+.dash-tab{padding:13px 15px;font-size:13px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;white-space:nowrap;}
+.dash-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.dash-tab:hover:not(.active){color:var(--text);}
+
+/* ── CHARTS ────────────────────────────────────────────── */
+.chart-wrap{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;}
+.chart-title{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;}
+.chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;}
+.chart-legend-item{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);}
+.legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+/* ── EMPTY STATE ───────────────────────────────────────── */
+.empty{text-align:center;padding:56px 24px;color:var(--muted);}
+.empty-icon{font-size:44px;margin-bottom:14px;}
+.empty-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px;}
+.empty-desc{font-size:13px;margin-bottom:18px;}
+
+/* ── PUBLIC PAGES ──────────────────────────────────────── */
+.pub-wrap{min-height:100vh;background:var(--bg);}
+.pub-hdr{background:#fff;border-bottom:1px solid var(--border);padding:0 32px;height:58px;display:flex;align-items:center;gap:14px;}
+.pub-logo{font-weight:800;font-size:17px;color:var(--accent);}
+.pub-nav{display:flex;gap:8px;margin-left:auto;}
+.auth-wrap{display:flex;justify-content:center;padding:48px 16px;}
+.auth-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:36px;width:400px;max-width:100%;}
+.auth-title{font-size:21px;font-weight:700;text-align:center;margin-bottom:6px;}
+.auth-sub{font-size:13px;color:var(--muted);text-align:center;margin-bottom:26px;}
+
+/* ── SPECIFIC LAYOUTS ──────────────────────────────────── */
+.classes-body{display:flex;gap:20px;}
+.classes-list-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;}
+.debt-panel{width:272px;flex-shrink:0;display:flex;flex-direction:column;gap:14px;}
+.sales-body{display:flex;gap:20px;}
+.sales-list-col{flex:1;min-width:0;}
+.sales-summary{width:256px;flex-shrink:0;}
+.settings-wrap{display:flex;gap:22px;}
+.settings-nav{width:196px;flex-shrink:0;}
+.settings-nav-item{padding:7px 11px;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);}
+.settings-nav-item:hover{background:var(--bg);color:var(--text);}
+.settings-nav-item.active{background:var(--accent-l);color:var(--accent);}
+.settings-body{flex:1;min-width:0;}
+
+/* ── ATTENDANCE SWITCHES ───────────────────────────────── */
+.att-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);}
+.att-name{flex:1;font-size:13px;font-weight:500;}
+.att-opts{display:flex;gap:3px;}
+.att-opt{padding:3px 9px;border-radius:100px;font-size:11px;font-weight:600;border:1px solid var(--border);cursor:pointer;transition:all .1s;color:var(--muted);}
+.att-opt[data-val="present"].sel{background:var(--success-l);border-color:var(--success);color:#065F46;}
+.att-opt[data-val="absent"].sel{background:var(--error-l);border-color:var(--error);color:#991B1B;}
+.att-opt[data-val="excused"].sel{background:var(--warning-l);border-color:var(--warning);color:#92400E;}
+
+/* ── STRIPE MOCK ───────────────────────────────────────── */
+.stripe-badge{background:#6772E5;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;}
+.card-input{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;background:var(--bg);font-family:monospace;font-size:13px;color:var(--muted);margin-bottom:10px;width:100%;}
+
+/* ── MISC UTILS ────────────────────────────────────────── */
+.flex{display:flex;}.flex-1{flex:1;}.gap-3{gap:12px;}.gap-4{gap:16px;}.gap-5{gap:20px;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+.mb-4{margin-bottom:16px;}.mb-5{margin-bottom:20px;}.mb-6{margin-bottom:24px;}
+.mt-4{margin-top:16px;}.mt-auto{margin-top:auto;}
+.text-muted{color:var(--muted);}.text-sm{font-size:12px;}.text-xs{font-size:11px;}
+.text-right{text-align:right;}.font-mono{font-family:monospace;}
+.w-full{width:100%;}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.divider{border:none;border-top:1px solid var(--border);margin:16px 0;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--muted);}
+</style>
+</head>
+<body>
+
+<!-- ROLE SELECTOR (always visible, top-right) -->
+<div id="role-bar">
+  <label>Rol demo:</label>
+  <select id="role-select">
+    <option value="admin">Admin</option>
+    <option value="receptionist">Receptionist</option>
+    <option value="instructor">Instructor</option>
+    <option value="student">Student</option>
+  </select>
+  <button class="btn-reset" data-action="reset-demo">↺ Reiniciar demo</button>
+</div>
+
+<!-- TOASTS -->
+<div id="toast-container"></div>
+
+<!-- APP SHELL -->
+<div id="app">
+  <header id="app-header"></header>
+  <div id="app-body">
+    <nav id="sidebar"></nav>
+    <main id="page-content"><div class="page"><p style="color:var(--muted)">Cargando…</p></div></main>
+  </div>
+</div>
+
+<!-- SIDE PANEL -->
+<div id="panel-overlay">
+  <div class="panel-bd" data-action="close-panel"></div>
+  <div class="panel-drawer" id="panel-drawer"></div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay">
+  <div class="modal-bd" data-action="close-modal"></div>
+  <div class="modal-box" id="modal-box"></div>
+</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════════ */
+const uid = p => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
+const fmt = n => new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(+n||0);
+const fmtN = n => new Intl.NumberFormat('es-MX').format(+n||0);
+const fmtDate = s => {if(!s)return '—';const d=new Date(s.slice(0,10)+'T12:00:00');return d.toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});};
+const today = () => new Date().toISOString().slice(0,10);
+const daysAgo = n => {const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10);};
+const daysAgoISO = n => {const d=new Date();d.setDate(d.getDate()-n);return d.toISOString();};
+const monthStr = n => {const d=new Date();d.setMonth(d.getMonth()-n);return d.toISOString().slice(0,7);};
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const DAYS = {monday:'Lunes',tuesday:'Martes',wednesday:'Miércoles',thursday:'Jueves',friday:'Viernes',saturday:'Sábado',sunday:'Domingo'};
+const SL = {active:'Activo',waiting:'En espera',completed:'Completado',cancelled:'Cancelado',pending:'Pendiente',succeeded:'Pagado',failed:'Fallido',refunded:'Reembolsado',present:'Presente',absent:'Ausente',excused:'Justificado',draft:'Borrador',archived:'Archivado',income:'Ingreso',expense:'Egreso',hourly:'Por hora',salary:'Salario',commission:'Comisión',cash:'Efectivo',transfer:'Transferencia',stripe:'Stripe',check:'Cheque',other:'Otro',enrollment:'Inscripción',payroll:'Nómina',monthly_subscription:'Mensualidad',enrollment_fee:'Matrícula',equipment_sale:'Equipo',uniform_sale:'Uniforme',rent:'Renta',utilities:'Servicios',marketing:'Marketing',maintenance:'Mantenimiento',equipment:'Equipamiento'};
+const SC = {active:'success',succeeded:'success',present:'success',waiting:'warning',pending:'warning',excused:'warning',cancelled:'muted',completed:'muted',absent:'error',failed:'error',refunded:'muted',draft:'muted',archived:'muted'};
+const badge = (v,label) => `<span class="badge badge-${SC[v]||'muted'}">${label||SL[v]||v}</span>`;
+const chip = (name,color) => `<span class="chip" style="background:${color||'#666'}">${esc(name)}</span>`;
+
+/* ═══════════════════════════════════════════════════════════
+   SEED DATA
+═══════════════════════════════════════════════════════════ */
+function seedDb(){
+  const ACAD='acad_evolve01';
+  const cats=[
+    {id:'cat_pool',name:'Pool',color:'#0EA5E9',monthly_fee:1200,enrollment_fee:500,description:'Natación y actividades acuáticas'},
+    {id:'cat_cross',name:'Crossfit',color:'#EF4444',monthly_fee:1500,enrollment_fee:800,description:'Entrenamiento funcional de alta intensidad'},
+    {id:'cat_hyrox',name:'Hyrox',color:'#F97316',monthly_fee:1800,enrollment_fee:1000,description:'Fitness de resistencia y fuerza'},
+    {id:'cat_yoga',name:'Yoga',color:'#22C55E',monthly_fee:900,enrollment_fee:300,description:'Yoga y bienestar integral'},
+    {id:'cat_kids',name:'Kids',color:'#A855F7',monthly_fee:800,enrollment_fee:200,description:'Actividades físicas para niños'},
+  ];
+  const uBase=(id,fn,ln,email,role,extra={})=>({id,first_name:fn,last_name:ln,email,phone:`55-${Math.floor(1000+Math.random()*9000)}-${Math.floor(1000+Math.random()*9000)}`,role,is_active:true,email_verified_at:daysAgoISO(90),created_at:daysAgoISO(180),updated_at:daysAgoISO(10),...extra});
+  const admin=uBase('user_admin01','Ricardo','Morales','admin@evolve.mx','admin');
+  const receps=[
+    uBase('user_recep01','María','López','maria@evolve.mx','receptionist'),
+    uBase('user_recep02','José','Ramírez','jose@evolve.mx','receptionist'),
+  ];
+  const instData=[
+    ['user_inst01','Carlos','Mendoza','carlos@evolve.mx',180],
+    ['user_inst02','Ana','García','ana@evolve.mx',200],
+    ['user_inst03','Roberto','Silva','roberto@evolve.mx',150],
+    ['user_inst04','Guadalupe','Torres','lupita@evolve.mx',140],
+    ['user_inst05','Javier','Reyes','javier@evolve.mx',190],
+  ];
+  const instructors=instData.map(([id,fn,ln,em,hr])=>uBase(id,fn,ln,em,'instructor',{hourly_rate:hr}));
+  const studData=[
+    ['Ana','Torres','Ruiz'],['Carlos','López','Martín'],['María','García','Pérez'],
+    ['Luis','Hernández','Santos'],['Sofía','Ramírez','Cruz'],['Diego','Morales','Vega'],
+    ['Valentina','Soto','Jiménez'],['Andrés','Castro','Medina'],['Isabella','Flores','Guzmán'],
+    ['Miguel','Díaz','Ríos'],['Lucía','Vargas','Pineda'],['Pablo','Ramos','Cervantes'],
+    ['Carmen','Ortiz','Luna'],['Rodrigo','Navarro','Blanco'],['Adriana','Martínez','Torres'],
+    ['Felipe','Castillo','Mora'],['Daniela','Aguilar','Reyes'],['Antonio','Mendoza','Serna'],
+    ['Natalia','Peña','Contreras'],['Eduardo','Rivera','Vidal'],['Paula','Suárez','Montes'],
+    ['Rafael','Cabrera','Domínguez'],['Mariana','Fuentes','León'],['Joaquín','Espinoza','Romero'],
+    ['Valeria','Núñez','Salazar'],
+  ];
+  const students=studData.map(([fn,ln2,ln3],i)=>uBase(`user_stud${String(i+1).padStart(2,'0')}`,fn,`${ln2} ${ln3}`,`${fn.toLowerCase()}.${ln2.toLowerCase()}@gmail.com`,'student'));
+  const allUsers=[admin,...receps,...instructors,...students];
+  const user_academies=allUsers.map(u=>({user_id:u.id,academy_id:ACAD,role:u.role,hourly_rate:u.hourly_rate||null,joined_at:daysAgoISO(180)}));
+
+  // student_categories
+  const scPairs=[
+    ['user_stud01','cat_pool'],['user_stud02','cat_pool'],['user_stud03','cat_pool'],['user_stud04','cat_pool'],['user_stud05','cat_pool'],
+    ['user_stud06','cat_cross'],['user_stud07','cat_cross'],['user_stud08','cat_cross'],['user_stud09','cat_cross'],['user_stud10','cat_cross'],
+    ['user_stud11','cat_hyrox'],['user_stud12','cat_hyrox'],['user_stud13','cat_hyrox'],['user_stud14','cat_hyrox'],
+    ['user_stud15','cat_yoga'],['user_stud16','cat_yoga'],['user_stud17','cat_yoga'],['user_stud18','cat_yoga'],['user_stud19','cat_yoga'],
+    ['user_stud20','cat_kids'],['user_stud21','cat_kids'],['user_stud22','cat_kids'],
+    ['user_stud23','cat_pool'],['user_stud23','cat_cross'],
+    ['user_stud24','cat_cross'],['user_stud24','cat_hyrox'],
+    ['user_stud25','cat_yoga'],['user_stud25','cat_kids'],
+  ];
+  const student_categories=scPairs.map(([sid,cid])=>({student_id:sid,category_id:cid,assigned_at:daysAgoISO(120)}));
+
+  // classes + class_categories
+  const clsRaw=[
+    {id:'class_pool1',name:'Pool Avanzado',inst:'user_inst01',day:'monday',time:'07:00',dur:60,max:8,cats:['cat_pool'],loc:'Alberca Principal'},
+    {id:'class_pool2',name:'Pool Principiantes',inst:'user_inst01',day:'wednesday',time:'09:00',dur:60,max:15,cats:['cat_pool'],loc:'Alberca Principal'},
+    {id:'class_cross1',name:'Crossfit Matutino',inst:'user_inst02',day:'monday',time:'06:00',dur:60,max:6,cats:['cat_cross'],loc:'Box A'},
+    {id:'class_cross2',name:'Crossfit Vespertino',inst:'user_inst02',day:'tuesday',time:'18:00',dur:60,max:20,cats:['cat_cross'],loc:'Box A'},
+    {id:'class_hyrox1',name:'Hyrox Training',inst:'user_inst02',day:'thursday',time:'07:00',dur:90,max:4,cats:['cat_hyrox'],loc:'Box B'},
+    {id:'class_hyrox2',name:'Hyrox Avanzado',inst:'user_inst02',day:'saturday',time:'09:00',dur:90,max:8,cats:['cat_hyrox'],loc:'Box B'},
+    {id:'class_yoga1',name:'Yoga Matutino',inst:'user_inst03',day:'tuesday',time:'07:00',dur:75,max:25,cats:['cat_yoga'],loc:'Sala Zen'},
+    {id:'class_yoga2',name:'Yoga Vespertino',inst:'user_inst03',day:'thursday',time:'17:00',dur:75,max:25,cats:['cat_yoga'],loc:'Sala Zen'},
+    {id:'class_yoga3',name:'Yoga Restaurativo',inst:'user_inst03',day:'saturday',time:'10:00',dur:90,max:20,cats:['cat_yoga'],loc:'Sala Zen'},
+    {id:'class_kids1',name:'Natación Infantil',inst:'user_inst04',day:'monday',time:'16:00',dur:45,max:10,cats:['cat_kids'],loc:'Alberca Infantil'},
+    {id:'class_kids2',name:'Gym Kids',inst:'user_inst04',day:'wednesday',time:'16:00',dur:45,max:10,cats:['cat_kids'],loc:'Sala Infantil'},
+    {id:'class_cross3',name:'Crossfit Open',inst:'user_inst05',day:'friday',time:'07:00',dur:60,max:25,cats:['cat_cross'],loc:'Box A'},
+  ];
+  const classes=clsRaw.map(c=>({id:c.id,academy_id:ACAD,name:c.name,description:'',instructor_id:c.inst,status:'active',recurrence:'weekly',schedule_day:c.day,schedule_time:c.time,duration_minutes:c.dur,max_students:c.max,price:0,location:c.loc,created_at:daysAgoISO(180),updated_at:daysAgoISO(30)}));
+  const class_categories=clsRaw.flatMap(c=>c.cats.map(cat=>({class_id:c.id,category_id:cat})));
+
+  // enrollments  (class_cross1 6/6 full, class_hyrox1 4/4 full)
+  const eRaw=[
+    ['enroll_p101','user_stud01','class_pool1','active'],['enroll_p102','user_stud02','class_pool1','active'],
+    ['enroll_p103','user_stud03','class_pool1','active'],['enroll_p104','user_stud04','class_pool1','active'],
+    ['enroll_p105','user_stud05','class_pool1','active'],['enroll_p106','user_stud23','class_pool1','active'],
+    ['enroll_p201','user_stud01','class_pool2','active'],['enroll_p202','user_stud02','class_pool2','active'],
+    ['enroll_p203','user_stud23','class_pool2','active'],
+    ['enroll_c101','user_stud06','class_cross1','active'],['enroll_c102','user_stud07','class_cross1','active'],
+    ['enroll_c103','user_stud08','class_cross1','active'],['enroll_c104','user_stud09','class_cross1','active'],
+    ['enroll_c105','user_stud10','class_cross1','active'],['enroll_c106','user_stud23','class_cross1','active'],
+    ['enroll_c107','user_stud24','class_cross1','waiting',1],
+    ['enroll_c201','user_stud06','class_cross2','active'],['enroll_c202','user_stud07','class_cross2','active'],
+    ['enroll_c203','user_stud08','class_cross2','active'],
+    ['enroll_c301','user_stud09','class_cross3','active'],['enroll_c302','user_stud10','class_cross3','active'],
+    ['enroll_c303','user_stud24','class_cross3','active'],
+    ['enroll_h101','user_stud11','class_hyrox1','active'],['enroll_h102','user_stud12','class_hyrox1','active'],
+    ['enroll_h103','user_stud13','class_hyrox1','active'],['enroll_h104','user_stud14','class_hyrox1','active'],
+    ['enroll_h105','user_stud24','class_hyrox1','waiting',1],
+    ['enroll_h201','user_stud11','class_hyrox2','active'],['enroll_h202','user_stud12','class_hyrox2','active'],
+    ['enroll_y101','user_stud15','class_yoga1','active'],['enroll_y102','user_stud16','class_yoga1','active'],
+    ['enroll_y103','user_stud17','class_yoga1','active'],['enroll_y104','user_stud18','class_yoga1','active'],
+    ['enroll_y105','user_stud19','class_yoga1','active'],['enroll_y106','user_stud25','class_yoga1','active'],
+    ['enroll_y201','user_stud15','class_yoga2','active'],['enroll_y202','user_stud16','class_yoga2','active'],
+    ['enroll_y301','user_stud17','class_yoga3','active'],['enroll_y302','user_stud18','class_yoga3','active'],
+    ['enroll_y303','user_stud19','class_yoga3','active'],
+    ['enroll_k101','user_stud20','class_kids1','active'],['enroll_k102','user_stud21','class_kids1','active'],
+    ['enroll_k103','user_stud22','class_kids1','active'],['enroll_k104','user_stud25','class_kids1','active'],
+    ['enroll_k201','user_stud20','class_kids2','active'],['enroll_k202','user_stud21','class_kids2','active'],
+    ['enroll_old1','user_stud03','class_cross2','cancelled'],
+    ['enroll_old2','user_stud14','class_yoga1','completed'],
+    ['enroll_old3','user_stud05','class_kids1','cancelled'],
+  ];
+  const enrollments=eRaw.map(([id,sid,cid,status,wp])=>({id,student_id:sid,class_id:cid,status,waiting_position:wp||null,waitlisted_at:wp?daysAgoISO(10):null,enrollment_date:daysAgoISO(Math.floor(30+Math.random()*90)),completion_date:status==='completed'?daysAgoISO(5):null}));
+
+  // transactions – last 6 months
+  const transactions=[];
+  const activeEnrolls=enrollments.filter(e=>e.status==='active');
+  const pmethods=['cash','transfer','stripe'];
+  for(let m=0;m<6;m++){
+    const mo=monthStr(m);
+    const isPastMonth=m>0;
+    // monthly subscriptions
+    activeEnrolls.forEach((enr,i)=>{
+      const catId=scPairs.find(([s])=>s===enr.student_id)?.[1];
+      const cat=cats.find(c=>c.id===catId);if(!cat)return;
+      const paid=isPastMonth||(Math.random()>0.35);
+      transactions.push({id:`txn_sub_${mo.replace('-','')}${enr.id.slice(-4)}`,academy_id:ACAD,type:'income',category:'enrollment',subcategory:'monthly_subscription',amount:cat.monthly_fee,status:paid?'succeeded':'pending',payment_method:pmethods[i%3],student_id:enr.student_id,enrollment_id:enr.id,due_date:`${mo}-05`,paid_at:paid?`${mo}-${String(3+Math.floor(Math.random()*5)).padStart(2,'0')}T10:00:00Z`:null,created_by:'user_admin01',created_at:`${mo}-01T09:00:00Z`,updated_at:`${mo}-01T09:00:00Z`});
+    });
+    // fixed expenses
+    [{sub:'rent',amt:15000},{sub:'utilities',amt:2200+Math.floor(Math.random()*600)},{sub:'marketing',amt:1500},{sub:'maintenance',amt:600+Math.floor(Math.random()*800)}].forEach((e,i)=>{
+      transactions.push({id:`txn_exp_${mo.replace('-','')}x${i}`,academy_id:ACAD,type:'expense',category:'expense',subcategory:e.sub,amount:e.amt,status:'succeeded',payment_method:'transfer',paid_at:`${mo}-03T09:00:00Z`,created_by:'user_admin01',created_at:`${mo}-01T08:00:00Z`,updated_at:`${mo}-01T08:00:00Z`});
+    });
+    // payroll
+    instructors.forEach((inst,i)=>{
+      const hrs=16+Math.floor(Math.random()*10);
+      transactions.push({id:`txn_pay_${mo.replace('-','')}${inst.id.slice(-2)}`,academy_id:ACAD,type:'expense',category:'payroll',subcategory:'payroll',amount:hrs*inst.hourly_rate,status:isPastMonth?'succeeded':'pending',payment_method:'transfer',recipient_id:inst.id,payroll_type:'hourly',period_start:`${mo}-01`,period_end:`${mo}-30`,paid_at:isPastMonth?`${mo}-28T10:00:00Z`:null,created_by:'user_admin01',created_at:`${mo}-25T09:00:00Z`,updated_at:`${mo}-25T09:00:00Z`});
+    });
+    // occasional equipment/uniform sales
+    if(m<3){
+      transactions.push({id:`txn_eq_${mo.replace('-','')}`,academy_id:ACAD,type:'income',category:'enrollment',subcategory:'equipment_sale',amount:450+Math.floor(Math.random()*600),status:'succeeded',payment_method:'cash',student_id:'user_stud06',created_by:'user_recep01',created_at:`${mo}-12T11:00:00Z`,updated_at:`${mo}-12T11:00:00Z`});
+      transactions.push({id:`txn_uni_${mo.replace('-','')}`,academy_id:ACAD,type:'income',category:'enrollment',subcategory:'uniform_sale',amount:280+Math.floor(Math.random()*200),status:'succeeded',payment_method:'cash',student_id:'user_stud11',created_by:'user_recep01',created_at:`${mo}-15T11:00:00Z`,updated_at:`${mo}-15T11:00:00Z`});
+    }
+    // enrollment fees (one per new student simulation)
+    if(m===5){
+      ['user_stud01','user_stud06','user_stud11','user_stud15','user_stud20'].forEach((sid,i)=>{
+        const catId=scPairs.find(([s])=>s===sid)?.[1];
+        const cat=cats.find(c=>c.id===catId);if(!cat)return;
+        transactions.push({id:`txn_ef_${mo.replace('-','')}s${i}`,academy_id:ACAD,type:'income',category:'enrollment',subcategory:'enrollment_fee',amount:cat.enrollment_fee,status:'succeeded',payment_method:pmethods[i%3],student_id:sid,created_by:'user_recep01',created_at:`${mo}-02T10:00:00Z`,updated_at:`${mo}-02T10:00:00Z`});
+      });
+    }
+  }
+
+  // attendance – last 4 weeks
+  const attendance=[];
+  const dowMap={monday:1,tuesday:2,wednesday:3,thursday:4,friday:5,saturday:6};
+  for(let d=1;d<=28;d++){
+    const date=new Date();date.setDate(date.getDate()-d);
+    const dow=date.getDay();
+    const ds=date.toISOString().slice(0,10);
+    classes.forEach(cls=>{
+      if(dowMap[cls.schedule_day]!==dow)return;
+      const classEnrolls=enrollments.filter(e=>e.class_id===cls.id&&e.status==='active');
+      classEnrolls.forEach(enr=>{
+        const r=Math.random();
+        attendance.push({id:`att_${ds.replace(/-/g,'')}${cls.id.slice(-4)}${enr.student_id.slice(-4)}`,academy_id:ACAD,class_id:cls.id,user_id:enr.student_id,session_date:ds,status:r>0.88?'absent':r>0.78?'excused':'present',notes:null,created_at:ds+'T10:00:00Z'});
+      });
+    });
+  }
+
+  // invoices – one per succeeded income transaction
+  const invoices=transactions.filter(t=>t.type==='income'&&t.status==='succeeded').map(t=>({
+    id:`inv_${t.id.slice(4)}`,academy_id:ACAD,student_id:t.student_id||null,enrollment_id:t.enrollment_id||null,transaction_id:t.id,
+    amount:t.amount,status:'paid',payment_method:t.payment_method,issued_date:t.created_at.slice(0,10),paid_at:t.paid_at,created_at:t.created_at,updated_at:t.updated_at,
+  }));
+
+  return {
+    academies:[{id:ACAD,name:'Academia Evolve',is_active:true,brand_colors:['#4F46E5','#0EA5E9','#10B981'],created_at:daysAgoISO(365),updated_at:daysAgoISO(10)}],
+    users:allUsers,user_academies,categories:cats.map(c=>({...c,academy_id:ACAD,created_at:daysAgoISO(180),updated_at:daysAgoISO(30)})),
+    class_categories,student_categories,classes,enrollments,transactions,attendance,invoices,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════ */
+let db;
+const S = {
+  role:'admin',
+  userId:'user_admin01',
+  academyId:'acad_evolve01',
+  route:'/profile',
+};
+const ROLE_USERS = {admin:'user_admin01',receptionist:'user_recep01',instructor:'user_inst01',student:'user_stud01'};
+
+function loadDb(){
+  try{const s=localStorage.getItem('acad_demo_db');if(s){db=JSON.parse(s);return;}}catch(e){}
+  db=seedDb();saveDb();
+}
+function saveDb(){try{localStorage.setItem('acad_demo_db',JSON.stringify(db));}catch(e){}}
+function resetDemo(){localStorage.removeItem('acad_demo_db');db=seedDb();saveDb();renderAll();showToast('Datos del demo restablecidos','success');}
+function me(){return db.users.find(u=>u.id===S.userId)||db.users[0];}
+function academy(){return db.academies[0];}
+
+/* ═══════════════════════════════════════════════════════════
+   API MOCK
+═══════════════════════════════════════════════════════════ */
+const api = {
+  // ── helpers ──────────────────────────────────────────
+  _user(id){return db.users.find(u=>u.id===(id||S.userId));},
+  _class(id){return db.classes.find(c=>c.id===id);},
+  _enroll(id){return db.enrollments.find(e=>e.id===id);},
+  _cat(id){return db.categories.find(c=>c.id===id);},
+  _studentCats(sid){return db.student_categories.filter(s=>s.student_id===sid).map(s=>s.category_id);},
+  _classCats(cid){return db.class_categories.filter(c=>c.class_id===cid).map(c=>c.category_id);},
+  _activeCount(cid){return db.enrollments.filter(e=>e.class_id===cid&&e.status==='active').length;},
+  _waitCount(cid){return db.enrollments.filter(e=>e.class_id===cid&&e.status==='waiting').length;},
+  _userName(id){const u=db.users.find(x=>x.id===id);return u?`${u.first_name} ${u.last_name}`:'—';},
+  _instructorHours(iid,start,end){
+    const myClasses=db.classes.filter(c=>c.instructor_id===iid).map(c=>c.id);
+    return db.attendance.filter(a=>myClasses.includes(a.class_id)&&a.status==='present'&&(!start||a.session_date>=start)&&(!end||a.session_date<=end))
+      .reduce((s,a)=>{const cls=db.classes.find(c=>c.id===a.class_id);return s+(cls?.duration_minutes||60)/60;},0);
+  },
+
+  // ── categories ────────────────────────────────────────
+  listCategories(){return {categories:db.categories,total:db.categories.length};},
+  getCategory(id){return db.categories.find(c=>c.id===id);},
+  createCategory(data){
+    const c={id:uid('cat'),academy_id:S.academyId,name:data.name,description:data.description||'',color:data.color||'#6B7280',monthly_fee:+data.monthly_fee||0,enrollment_fee:+data.enrollment_fee||0,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+    db.categories.push(c);saveDb();return c;
+  },
+  updateCategory(id,data){
+    const i=db.categories.findIndex(c=>c.id===id);if(i<0)return null;
+    db.categories[i]={...db.categories[i],...data,updated_at:new Date().toISOString()};
+    saveDb();return db.categories[i];
+  },
+  deleteCategory(id){
+    db.categories=db.categories.filter(c=>c.id!==id);
+    db.class_categories=db.class_categories.filter(c=>c.category_id!==id);
+    db.student_categories=db.student_categories.filter(c=>c.category_id!==id);
+    saveDb();return{message:'Categoría eliminada'};
+  },
+
+  // ── users ─────────────────────────────────────────────
+  listUsers(params={}){
+    let users=db.users;
+    if(params.role) users=users.filter(u=>u.role===params.role);
+    if(params.search){const q=params.search.toLowerCase();users=users.filter(u=>`${u.first_name} ${u.last_name} ${u.email}`.toLowerCase().includes(q));}
+    return{users,total:users.length};
+  },
+  getUser(id){return db.users.find(u=>u.id===id);},
+  createUser(data){
+    const u={id:uid('user'),academy_id:S.academyId,...data,is_active:true,email_verified_at:new Date().toISOString(),created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+    db.users.push(u);
+    db.user_academies.push({user_id:u.id,academy_id:S.academyId,role:data.role,hourly_rate:data.hourly_rate||null,joined_at:new Date().toISOString()});
+    saveDb();return u;
+  },
+  updateUser(id,data){
+    const i=db.users.findIndex(u=>u.id===id);if(i<0)return null;
+    db.users[i]={...db.users[i],...data,updated_at:new Date().toISOString()};
+    if(data.hourly_rate!==undefined){const ua=db.user_academies.find(x=>x.user_id===id&&x.academy_id===S.academyId);if(ua)ua.hourly_rate=+data.hourly_rate;}
+    saveDb();return db.users[i];
+  },
+  deleteUser(id){const i=db.users.findIndex(u=>u.id===id);if(i>=0){db.users[i].is_active=false;saveDb();}return{message:'Usuario desactivado'};},
+  getUserCategories(id){return{user_id:id,categories:db.student_categories.filter(s=>s.student_id===id).map(s=>db.categories.find(c=>c.id===s.category_id)).filter(Boolean)};},
+  assignUserCategories(id,catIds){
+    db.student_categories=db.student_categories.filter(s=>s.student_id!==id);
+    catIds.forEach(cid=>db.student_categories.push({student_id:id,category_id:cid,assigned_at:new Date().toISOString()}));
+    saveDb();return this.getUserCategories(id);
+  },
+
+  // ── classes ───────────────────────────────────────────
+  listClasses(params={}){
+    let cls=db.classes.filter(c=>c.status!=='archived'||(params.status==='archived'));
+    if(params.status) cls=cls.filter(c=>c.status===params.status);
+    if(S.role==='instructor') cls=cls.filter(c=>c.instructor_id===S.userId);
+    if(S.role==='student'){
+      const myCats=this._studentCats(S.userId);
+      cls=cls.filter(c=>this._classCats(c.id).some(cat=>myCats.includes(cat)));
+    }
+    if(params.search){const q=params.search.toLowerCase();cls=cls.filter(c=>c.name.toLowerCase().includes(q));}
+    return{classes:cls.map(c=>this._enrichClass(c)),total:cls.length};
+  },
+  _enrichClass(c){
+    const ccats=this._classCats(c.id).map(id=>db.categories.find(x=>x.id===id)).filter(Boolean);
+    return{...c,categories:ccats,enrolled_students:this._activeCount(c.id),waiting_list_count:this._waitCount(c.id),instructor:db.users.find(u=>u.id===c.instructor_id)};
+  },
+  createClass(data){
+    const cats=data.category_ids||[];
+    const c={id:uid('class'),academy_id:S.academyId,...data,status:data.status||'active',recurrence:data.recurrence||'weekly',created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+    delete c.category_ids;
+    db.classes.push(c);
+    cats.forEach(cid=>db.class_categories.push({class_id:c.id,category_id:cid}));
+    saveDb();return this._enrichClass(c);
+  },
+  updateClass(id,data){
+    const i=db.classes.findIndex(c=>c.id===id);if(i<0)return null;
+    if(data.category_ids){
+      db.class_categories=db.class_categories.filter(c=>c.class_id!==id);
+      data.category_ids.forEach(cid=>db.class_categories.push({class_id:id,category_id:cid}));
+    }
+    const{category_ids:_,...rest}=data;
+    db.classes[i]={...db.classes[i],...rest,updated_at:new Date().toISOString()};
+    saveDb();return this._enrichClass(db.classes[i]);
+  },
+  getClassWaitingList(id){
+    const wl=db.enrollments.filter(e=>e.class_id===id&&e.status==='waiting').sort((a,b)=>(a.waiting_position||99)-(b.waiting_position||99));
+    return{class_id:id,waiting_list:wl.map(e=>({...e,student_name:this._userName(e.student_id)})),total_waiting:wl.length};
+  },
+
+  // ── enrollments ───────────────────────────────────────
+  listEnrollments(params={}){
+    let enr=db.enrollments;
+    if(S.role==='student') enr=enr.filter(e=>e.student_id===S.userId);
+    if(S.role==='instructor'){const myClasses=db.classes.filter(c=>c.instructor_id===S.userId).map(c=>c.id);enr=enr.filter(e=>myClasses.includes(e.class_id));}
+    if(params.class_id) enr=enr.filter(e=>e.class_id===params.class_id);
+    if(params.student_id) enr=enr.filter(e=>e.student_id===params.student_id);
+    if(params.status) enr=enr.filter(e=>e.status===params.status);
+    return{enrollments:enr.map(e=>this._enrichEnroll(e)),total:enr.length};
+  },
+  _enrichEnroll(e){
+    const cls=db.classes.find(c=>c.id===e.class_id)||{};
+    const stu=db.users.find(u=>u.id===e.student_id)||{};
+    const inst=db.users.find(u=>u.id===cls.instructor_id)||{};
+    return{...e,class_name:cls.name||'',student_name:`${stu.first_name||''} ${stu.last_name||''}`.trim(),student_email:stu.email||'',instructor_name:`${inst.first_name||''} ${inst.last_name||''}`.trim(),class_schedule:{day:cls.schedule_day,time:cls.schedule_time,location:cls.location}};
+  },
+  createEnrollment(studentId,classId){
+    const cls=db.classes.find(c=>c.id===classId);
+    if(!cls)return{error:'not_found',message:'Clase no encontrada'};
+    const existing=db.enrollments.find(e=>e.student_id===studentId&&e.class_id===classId&&e.status!=='cancelled');
+    if(existing)return{error:'conflict',message:'El estudiante ya está inscrito'};
+    const stuCats=this._studentCats(studentId);
+    const clsCats=this._classCats(classId);
+    if(!clsCats.some(c=>stuCats.includes(c)))return{error:'forbidden_enrollment',message:'El estudiante no tiene la categoría requerida para esta clase'};
+    const activeCount=this._activeCount(classId);
+    const isFull=cls.max_students&&activeCount>=cls.max_students;
+    const status=isFull?'waiting':'active';
+    const wp=isFull?(this._waitCount(classId)+1):null;
+    const e={id:uid('enroll'),student_id:studentId,class_id:classId,status,waiting_position:wp,waitlisted_at:isFull?new Date().toISOString():null,enrollment_date:new Date().toISOString()};
+    db.enrollments.push(e);saveDb();
+    return{enrollment:this._enrichEnroll(e),message:isFull?`Agregado a lista de espera (posición ${wp})`:'Inscripción exitosa',waiting_position:wp};
+  },
+  deleteEnrollment(id){
+    const e=db.enrollments.find(x=>x.id===id);
+    if(!e)return{error:'not_found',message:'Inscripción no encontrada'};
+    const wasActive=e.status==='active';
+    e.status='cancelled';
+    let promoted=null;
+    if(wasActive){
+      const firstWaiting=db.enrollments.filter(x=>x.class_id===e.class_id&&x.status==='waiting').sort((a,b)=>(a.waiting_position||99)-(b.waiting_position||99))[0];
+      if(firstWaiting){
+        firstWaiting.status='active';firstWaiting.waiting_position=null;firstWaiting.waitlisted_at=null;
+        promoted={enrollment_id:firstWaiting.id,student_id:firstWaiting.student_id,student_name:this._userName(firstWaiting.student_id)};
+        // reorder remaining waiting
+        db.enrollments.filter(x=>x.class_id===e.class_id&&x.status==='waiting').sort((a,b)=>(a.waiting_position||99)-(b.waiting_position||99)).forEach((x,i)=>{x.waiting_position=i+1;});
+      }
+    }
+    saveDb();
+    if(promoted)setTimeout(()=>showToast(`✅ ${promoted.student_name} fue promovido de la lista de espera`,'success'),300);
+    return{message:'Inscripción cancelada',promoted_student:promoted};
+  },
+
+  // ── payments ──────────────────────────────────────────
+  initiatePayment(enrollmentId){
+    const enr=this._enroll(enrollmentId);if(!enr)return{error:'not_found'};
+    const cls=this._class(enr.class_id)||{};
+    const catId=this._classCats(enr.class_id)[0];
+    const cat=this._cat(catId)||{monthly_fee:0};
+    const amount=cat.monthly_fee||cls.price||500;
+    const piId=`pi_${Date.now().toString(36)}`;
+    return{client_secret:`${piId}_secret_demo`,payment_intent_id:piId,amount,currency:'MXN',enrollment_id:enrollmentId,message:'PaymentIntent creado (simulado)'};
+  },
+  confirmPayment(piId,enrollmentId){
+    const enr=this._enroll(enrollmentId);if(!enr)return{error:'not_found'};
+    const cls=this._class(enr.class_id)||{};
+    const catId=this._classCats(enr.class_id)[0];
+    const cat=this._cat(catId)||{monthly_fee:0};
+    const amount=cat.monthly_fee||cls.price||500;
+    const t=this._createTxn({type:'income',category:'enrollment',subcategory:'monthly_subscription',amount,payment_method:'stripe',student_id:enr.student_id,enrollment_id:enrollmentId,reference:piId});
+    const inv=this._createInvoice(t);
+    saveDb();
+    return{payment:t,enrollment_updated:{enrollment_id:enrollmentId,status:'active'},invoice:{invoice_id:inv.id},message:'Pago exitoso. Factura creada.'};
+  },
+  createCashPayment(enrollmentId,amount,method,notes){
+    const enr=this._enroll(enrollmentId);if(!enr)return{error:'not_found'};
+    const t=this._createTxn({type:'income',category:'enrollment',subcategory:'monthly_subscription',amount:+amount,payment_method:method||'cash',student_id:enr.student_id,enrollment_id:enrollmentId,notes});
+    const inv=this._createInvoice(t);
+    saveDb();
+    return{payment:t,invoice:{invoice_id:inv.id},message:'Pago en efectivo registrado.'};
+  },
+  _createTxn(data){
+    const t={id:uid('txn'),academy_id:S.academyId,status:'succeeded',paid_at:new Date().toISOString(),created_by:S.userId,created_at:new Date().toISOString(),updated_at:new Date().toISOString(),...data};
+    db.transactions.push(t);return t;
+  },
+  _createInvoice(t){
+    const inv={id:uid('inv'),academy_id:S.academyId,student_id:t.student_id||null,enrollment_id:t.enrollment_id||null,transaction_id:t.id,amount:t.amount,status:'paid',payment_method:t.payment_method,issued_date:today(),paid_at:t.paid_at,created_at:t.created_at,updated_at:t.updated_at};
+    db.invoices.push(inv);return inv;
+  },
+  createPayroll(recipientId,amount,method,period_start,period_end,notes){
+    const t=this._createTxn({type:'expense',category:'payroll',subcategory:'payroll',amount:+amount,payment_method:method||'transfer',recipient_id:recipientId,payroll_type:'hourly',period_start,period_end,notes});
+    saveDb();return t;
+  },
+  createExpense(subcategory,amount,method,notes){
+    const t=this._createTxn({type:'expense',category:'expense',subcategory,amount:+amount,payment_method:method||'cash',notes});
+    saveDb();return t;
+  },
+
+  // ── attendance ────────────────────────────────────────
+  recordAttendance(classId,sessionDate,records){
+    let count=0;
+    records.forEach(r=>{
+      const key=`att_${sessionDate.replace(/-/g,'')}${classId.slice(-4)}${r.student_id.slice(-4)}`;
+      const existing=db.attendance.find(a=>a.id===key||( a.class_id===classId&&a.user_id===r.student_id&&a.session_date===sessionDate));
+      if(existing){existing.status=r.status;existing.notes=r.notes||null;}
+      else{db.attendance.push({id:uid('att'),academy_id:S.academyId,class_id:classId,user_id:r.student_id,session_date:sessionDate,status:r.status,notes:r.notes||null,created_at:new Date().toISOString()});count++;}
+    });
+    saveDb();return{message:`Asistencia registrada para ${records.length} estudiantes`,recorded_count:count};
+  },
+
+  // ── dashboard ─────────────────────────────────────────
+  getDashboardSummary(start,end){
+    start=start||`${today().slice(0,7)}-01`;end=end||today();
+    const txns=db.transactions.filter(t=>t.created_at.slice(0,10)>=start&&t.created_at.slice(0,10)<=end);
+    const income=txns.filter(t=>t.type==='income');
+    const totalPaid=income.filter(t=>t.status==='succeeded').reduce((s,t)=>s+t.amount,0);
+    const totalPending=income.filter(t=>t.status==='pending').reduce((s,t)=>s+t.amount,0);
+    const activeStudents=db.users.filter(u=>u.role==='student'&&u.is_active).length;
+    const activeEnrCount=db.enrollments.filter(e=>e.status==='active').length;
+    const attRecords=db.attendance.filter(a=>a.session_date>=start&&a.session_date<=end);
+    const attRate=attRecords.length?Math.round(attRecords.filter(a=>a.status==='present').length/attRecords.length*100):0;
+    return{period:{start_date:start,end_date:end},revenue:{total_paid:totalPaid,total_pending:totalPending,total_refunded:0},students:{total_active:activeStudents,new_this_period:3},classes:{total_active:db.classes.filter(c=>c.status==='active').length,total_enrollments:activeEnrCount},attendance:{average_attendance_rate:attRate,total_sessions:attRecords.length}};
+  },
+  getRevenueByMonth(){
+    const months={};
+    db.transactions.filter(t=>t.type==='income'&&t.status==='succeeded').forEach(t=>{
+      const mo=t.created_at.slice(0,7);
+      if(!months[mo])months[mo]={label:mo,monthly_subscription:0,enrollment_fee:0,equipment_sale:0,uniform_sale:0,total:0};
+      months[mo][t.subcategory]=(months[mo][t.subcategory]||0)+t.amount;
+      months[mo].total+=t.amount;
+    });
+    return Object.values(months).sort((a,b)=>a.label.localeCompare(b.label)).slice(-6);
+  },
+  getExpensesByMonth(){
+    const months={};
+    db.transactions.filter(t=>t.type==='expense'&&t.status==='succeeded').forEach(t=>{
+      const mo=t.created_at.slice(0,7);
+      if(!months[mo])months[mo]={label:mo,total:0};
+      months[mo][t.subcategory]=(months[mo][t.subcategory]||0)+t.amount;
+      months[mo].total+=t.amount;
+    });
+    return Object.values(months).sort((a,b)=>a.label.localeCompare(b.label)).slice(-6);
+  },
+  getPLByMonth(){
+    const rev=this.getRevenueByMonth();const exp=this.getExpensesByMonth();
+    const allMonths=[...new Set([...rev.map(r=>r.label),...exp.map(e=>e.label)])].sort().slice(-6);
+    return allMonths.map(mo=>({label:mo,revenue:(rev.find(r=>r.label===mo)||{}).total||0,expenses:(exp.find(e=>e.label===mo)||{}).total||0,profit:((rev.find(r=>r.label===mo)||{}).total||0)-((exp.find(e=>e.label===mo)||{}).total||0)}));
+  },
+};
+
+/* ═══════════════════════════════════════════════════════════
+   CHARTS (SVG)
+═══════════════════════════════════════════════════════════ */
+const CAT_COLORS={monthly_subscription:'#4F46E5',enrollment_fee:'#0EA5E9',equipment_sale:'#F97316',uniform_sale:'#A855F7',payroll:'#EF4444',rent:'#6B7280',utilities:'#64748B',marketing:'#F59E0B',maintenance:'#10B981',equipment:'#06B6D4'};
+const MONTH_SHORT=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+function moLabel(s){const[y,m]=s.split('-');return MONTH_SHORT[+m-1]+(y!==new Date().getFullYear().toString()?` '${y.slice(2)}`:'')}
+
+function barChart(data,opts={}){
+  const{w=500,h=180,color='#4F46E5',colors,showValues=false}=opts;
+  if(!data.length)return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto"><text x="${w/2}" y="${h/2}" text-anchor="middle" fill="#9CA3AF" font-size="12">Sin datos</text></svg>`;
+  const max=Math.max(...data.map(d=>d.value),1);
+  const pad={t:10,r:8,b:32,l:8};
+  const bw=Math.max(8,(w-pad.l-pad.r)/data.length-6);
+  const step=(w-pad.l-pad.r)/data.length;
+  let svg=`<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">`;
+  data.forEach((d,i)=>{
+    const x=pad.l+i*step+(step-bw)/2;
+    const bh=Math.max(2,((d.value/max)*(h-pad.t-pad.b)));
+    const y=h-pad.b-bh;
+    const c=colors?colors[i%colors.length]:color;
+    svg+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${c}" rx="3" opacity=".9"/>`;
+    if(showValues&&bh>20)svg+=`<text x="${(x+bw/2).toFixed(1)}" y="${(y+14).toFixed(1)}" text-anchor="middle" font-size="9" fill="white" font-weight="600">${fmt(d.value).replace('MX$','$').replace(',000',k=>'k')}</text>`;
+    svg+=`<text x="${(x+bw/2).toFixed(1)}" y="${(h-4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9CA3AF">${esc(d.label)}</text>`;
+  });
+  svg+='</svg>';return svg;
+}
+
+function stackedBarChart(data,keys,colors,opts={}){
+  const{w=500,h=200}=opts;
+  if(!data.length)return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto"><text x="${w/2}" y="${h/2}" text-anchor="middle" fill="#9CA3AF" font-size="12">Sin datos</text></svg>`;
+  const max=Math.max(...data.map(d=>keys.reduce((s,k)=>s+(d[k]||0),0)),1);
+  const pad={t:10,r:8,b:32,l:8};
+  const bw=Math.max(8,(w-pad.l-pad.r)/data.length-8);
+  const step=(w-pad.l-pad.r)/data.length;
+  let svg=`<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">`;
+  data.forEach((d,i)=>{
+    const x=pad.l+i*step+(step-bw)/2;
+    let offsetY=0;
+    keys.forEach((k,ki)=>{
+      const val=d[k]||0;if(!val)return;
+      const bh=(val/max)*(h-pad.t-pad.b);
+      const y=h-pad.b-offsetY-bh;
+      svg+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${colors[ki]}" rx="2"/>`;
+      offsetY+=bh;
+    });
+    svg+=`<text x="${(x+bw/2).toFixed(1)}" y="${(h-4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9CA3AF">${esc(d.label)}</text>`;
+  });
+  svg+='</svg>';return svg;
+}
+
+function donutChart(data,opts={}){
+  const{size=160,innerText=''}=opts;
+  const total=data.reduce((s,d)=>s+d.value,0);
+  if(!total)return `<svg viewBox="0 0 ${size} ${size}" style="width:${size}px;height:${size}px"><circle cx="${size/2}" cy="${size/2}" r="56" fill="none" stroke="#E5E7EB" stroke-width="24"/><text x="${size/2}" y="${size/2+5}" text-anchor="middle" font-size="12" fill="#9CA3AF">Sin datos</text></svg>`;
+  const cx=size/2,cy=size/2,r=size*0.35,sw=size*0.145;
+  let paths='';let angle=-Math.PI/2;
+  data.forEach(d=>{
+    const a=(d.value/total)*2*Math.PI;
+    const ea=angle+a;
+    const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
+    const x2=cx+r*Math.cos(ea),y2=cy+r*Math.sin(ea);
+    const large=a>Math.PI?1:0;
+    paths+=`<path d="M${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${large},1 ${x2.toFixed(2)},${y2.toFixed(2)}" fill="none" stroke="${d.color}" stroke-width="${sw}" stroke-linecap="round"/>`;
+    angle=ea;
+  });
+  const txt=innerText?`<text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="12" fill="#374151" font-weight="600">${esc(innerText)}</text>`:'';
+  return `<svg viewBox="0 0 ${size} ${size}" style="width:${size}px;height:${size}px">${paths}${txt}</svg>`;
+}
+
+function lineChart(data,opts={}){
+  const{w=500,h=160,color='#4F46E5',fill=true}=opts;
+  if(data.length<2)return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto"><text x="${w/2}" y="${h/2}" text-anchor="middle" fill="#9CA3AF" font-size="12">Sin datos</text></svg>`;
+  const pad={t:16,r:12,b:32,l:48};
+  const values=data.map(d=>d.value);
+  const min=Math.min(...values);const max=Math.max(...values,1);
+  const xScale=i=>(pad.l+(i/(data.length-1))*(w-pad.l-pad.r));
+  const yScale=v=>(h-pad.b-((v-min)/(max-min||1))*(h-pad.t-pad.b));
+  const points=data.map((d,i)=>`${xScale(i).toFixed(1)},${yScale(d.value).toFixed(1)}`).join(' ');
+  const fillPath=`M${xScale(0)},${yScale(data[0].value)} ${data.map((d,i)=>`L${xScale(i)},${yScale(d.value)}`).join(' ')} L${xScale(data.length-1)},${h-pad.b} L${xScale(0)},${h-pad.b} Z`;
+  let svg=`<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">`;
+  if(fill)svg+=`<path d="${fillPath}" fill="${color}" opacity=".1"/>`;
+  svg+=`<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  data.forEach((d,i)=>svg+=`<circle cx="${xScale(i).toFixed(1)}" cy="${yScale(d.value).toFixed(1)}" r="3.5" fill="${color}"/>`);
+  // y-axis labels
+  [0,0.5,1].forEach(p=>{const v=min+(max-min)*p;svg+=`<text x="${pad.l-6}" y="${(yScale(v)+4).toFixed(1)}" text-anchor="end" font-size="9" fill="#9CA3AF">${fmt(v).replace('MX$','$')}</text>`;});
+  data.forEach((d,i)=>svg+=`<text x="${xScale(i).toFixed(1)}" y="${(h-6).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9CA3AF">${esc(d.label)}</text>`);
+  svg+='</svg>';return svg;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SHELL (header + sidebar)
+═══════════════════════════════════════════════════════════ */
+const NAV={
+  admin:[{icon:'🏠',label:'Inicio',route:'/profile'},{icon:'👥',label:'Estudiantes',route:'/students'},{icon:'🏋️',label:'Instructores',route:'/instructors'},{icon:'📅',label:'Clases',route:'/classes'},{icon:'🏷️',label:'Categorías',route:'/categories'},{icon:'💰',label:'Ventas',route:'/sales'},{icon:'📊',label:'Finanzas',route:'/dashboard'}],
+  receptionist:[{icon:'🏠',label:'Inicio',route:'/profile'},{icon:'👥',label:'Estudiantes',route:'/students'},{icon:'🏋️',label:'Instructores',route:'/instructors'},{icon:'📅',label:'Clases',route:'/classes'},{icon:'💰',label:'Ventas',route:'/sales'}],
+  instructor:[{icon:'👤',label:'Mi Perfil',route:'/profile'},{icon:'📅',label:'Clases',route:'/classes'}],
+  student:[{icon:'👤',label:'Mi Perfil',route:'/profile'},{icon:'📅',label:'Clases',route:'/classes'}],
+};
+
+function renderShell(){
+  const u=me();
+  const initials=u?`${u.first_name[0]}${u.last_name[0]}`:'?';
+  const roleLabel={admin:'Administrador',receptionist:'Recepcionista',instructor:'Instructor',student:'Estudiante'};
+  document.getElementById('app-header').innerHTML=`
+    <div class="h-logo"><div class="h-logo-icon">A</div>Academy Management</div>
+    <span class="h-acad">${esc(academy()?.name||'')}</span>
+    <span class="h-spacer"></span>
+    <div class="h-user"><div class="h-avatar">${initials}</div><div><div style="font-weight:600;font-size:13px">${u?esc(u.first_name+' '+u.last_name):''}</div><div class="text-xs text-muted">${roleLabel[S.role]||S.role}</div></div></div>
+  `;
+  const items=(NAV[S.role]||[]);
+  const bottom=`<div class="sb-bottom"><div class="sb-item${S.route==='/settings'?' active':''}" data-action="navigate" data-route="/settings">⚙️ Configuración</div></div>`;
+  document.getElementById('sidebar').innerHTML=`
+    <div class="sb-section">${items.map(n=>`<div class="sb-item${S.route===n.route||S.route.startsWith(n.route+'/') && n.route!=='/profile'?' active':S.route===n.route?' active':''}" data-action="navigate" data-route="${n.route}">${n.icon} ${n.label}</div>`).join('')}</div>
+    ${bottom}
+  `;
+}
+
+function renderAll(){renderShell();renderPage();}
+function navigate(route){S.route=route;location.hash=route;renderShell();renderPage();}
+
+function renderPage(){
+  const r=S.route;
+  const el=document.getElementById('page-content');
+  if(r==='/'||r==='/home')return el.innerHTML=renderPublicHome();
+  if(r==='/login')return el.innerHTML=renderLogin();
+  if(r==='/register')return el.innerHTML=renderRegister();
+  if(r==='/email-verification')return el.innerHTML=renderEmailVerification();
+  if(r==='/accept-invitation')return el.innerHTML=renderAcceptInvitation();
+  if(r==='/password-reset')return el.innerHTML=renderPasswordReset();
+  if(r==='/profile')return el.innerHTML=renderMyProfile();
+  if(r==='/students')return el.innerHTML=renderStudents();
+  if(r==='/instructors')return el.innerHTML=renderInstructors();
+  if(r==='/classes')return el.innerHTML=renderClasses();
+  if(r==='/categories')return el.innerHTML=renderCategories();
+  if(r==='/sales')return el.innerHTML=renderSalesDetails();
+  if(r.startsWith('/dashboard'))return el.innerHTML=renderDashboard(r);
+  if(r==='/settings')return el.innerHTML=renderSettings();
+  el.innerHTML=`<div class="page"><div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Página no encontrada</div><a href="#/profile" data-action="navigate" data-route="/profile" class="btn btn-primary">Volver al inicio</a></div></div>`;
+}
+
+function showToast(msg,type='info'){
+  const id='t'+Date.now();
+  const el=document.createElement('div');
+  el.className=`toast${type?' '+type:''}`;el.id=id;
+  el.innerHTML=`<span>${msg}</span>`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(()=>{const t=document.getElementById(id);if(t)t.remove();},3500);
+}
+
+function openPanel(html){
+  document.getElementById('panel-drawer').innerHTML=html;
+  document.getElementById('panel-overlay').classList.add('open');
+}
+function closePanel(){document.getElementById('panel-overlay').classList.remove('open');}
+function openModal(html){
+  document.getElementById('modal-box').innerHTML=html;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE RENDERERS – PART 1
+   (public pages + profile + students + instructors)
+═══════════════════════════════════════════════════════════ */
+/* ── PUBLIC PAGES ── */
+function renderPublicHome(){return `<div class="pub-wrap"><div class="pub-hdr"><span class="pub-logo">🏟️ Academy Management</span><div class="pub-nav"><a href="#/login" data-action="navigate" data-route="/login" class="btn btn-secondary btn-sm">Iniciar sesión</a><a href="#/register" data-action="navigate" data-route="/register" class="btn btn-primary btn-sm">Registrar academia</a></div></div><div style="max-width:800px;margin:64px auto;padding:0 24px"><h1 style="font-size:40px;font-weight:800;margin-bottom:16px">Gestiona tu academia.<br><span style="color:var(--accent)">Sin complicaciones.</span></h1><p style="font-size:16px;color:var(--muted);margin-bottom:32px">Inscripciones, asistencia, cobros y finanzas — todo en un solo lugar para academias de deporte, música y artes.</p><div style="display:flex;gap:12px"><a href="#/register" data-action="navigate" data-route="/register" class="btn btn-primary">Empezar gratis</a><a href="#/login" data-action="navigate" data-route="/login" class="btn btn-secondary">Iniciar sesión</a></div><div class="grid-3 mt-4" style="margin-top:48px">${[['📅','Clases & horarios','Recurrencia semanal, cupo máximo, lista de espera automática'],['💳','Cobros integrados','Stripe Connect, efectivo y transferencia. Facturas automáticas.'],['📊','Finanzas en tiempo real','P&L, nómina por horas, cuentas por cobrar con aging.'],['👥','Roles y permisos','Admin, Recepcionista, Instructor y Alumno con vistas propias.'],['🏷️','Categorías','Suscripciones que controlan qué clases ve cada alumno.'],['📋','Asistencia','Registro rápido, cálculo de horas de instructor automático.']].map(([icon,t,d])=>`<div class="card card-body" style="padding:20px"><div style="font-size:28px;margin-bottom:8px">${icon}</div><div style="font-weight:600;margin-bottom:4px">${t}</div><div class="text-sm text-muted">${d}</div></div>`).join('')}</div></div></div>`;}
+
+function renderLogin(){return `<div class="pub-wrap"><div class="pub-hdr"><span class="pub-logo">🏟️ Academy Management</span><div class="pub-nav"><a href="#/" data-action="navigate" data-route="/" class="btn btn-ghost btn-sm">Inicio</a></div></div><div class="auth-wrap"><div class="auth-card"><div class="auth-title">Iniciar sesión</div><div class="auth-sub">Bienvenido de regreso</div><div class="fg"><label>Correo electrónico</label><input class="fc" type="email" value="admin@evolve.mx" placeholder="correo@academia.com"></div><div class="fg"><label>Contraseña</label><input class="fc" type="password" value="••••••••"></div><button class="btn btn-primary w-full" style="justify-content:center" data-action="login">Iniciar sesión</button><div class="text-sm text-muted" style="text-align:center;margin-top:16px"><a href="#/password-reset" data-action="navigate" data-route="/password-reset">¿Olvidaste tu contraseña?</a> · <a href="#/register" data-action="navigate" data-route="/register">Registrar academia</a></div></div></div></div>`;}
+
+function renderRegister(){return `<div class="pub-wrap"><div class="pub-hdr"><span class="pub-logo">🏟️ Academy Management</span><div class="pub-nav"><a href="#/login" data-action="navigate" data-route="/login" class="btn btn-ghost btn-sm">Iniciar sesión</a></div></div><div class="auth-wrap"><div class="auth-card" style="width:480px"><div class="auth-title">Registrar academia</div><div class="auth-sub">Crea tu cuenta de administrador</div><div class="fc-row"><div class="fg"><label>Nombre</label><input class="fc" placeholder="Juan"></div><div class="fg"><label>Apellido</label><input class="fc" placeholder="Pérez"></div></div><div class="fg"><label>Nombre de la academia</label><input class="fc" placeholder="Mi Academia Deportiva"></div><div class="fg"><label>Correo electrónico</label><input class="fc" type="email" placeholder="admin@academia.com"></div><div class="fg"><label>Contraseña</label><input class="fc" type="password" placeholder="Mínimo 8 caracteres"></div><button class="btn btn-primary w-full" style="justify-content:center" data-action="navigate" data-route="/email-verification">Crear cuenta</button><div class="text-sm text-muted" style="text-align:center;margin-top:14px">¿Ya tienes cuenta? <a href="#/login" data-action="navigate" data-route="/login">Inicia sesión</a></div></div></div></div>`;}
+
+function renderEmailVerification(){return `<div class="pub-wrap"><div class="pub-hdr"><span class="pub-logo">🏟️ Academy Management</span></div><div class="auth-wrap"><div class="auth-card" style="text-align:center"><div style="font-size:52px;margin-bottom:16px">📧</div><div class="auth-title">Verifica tu correo</div><div class="auth-sub" style="margin-bottom:24px">Enviamos un enlace de verificación a tu correo. Revisa tu bandeja de entrada.</div><button class="btn btn-primary" style="justify-content:center" data-action="login">Continuar al dashboard</button><div class="text-sm text-muted" style="margin-top:14px">¿No recibiste el correo? <a href="#">Reenviar</a></div></div></div></div>`;}
+
+function renderAcceptInvitation(){return `<div class="pub-wrap"><div class="pub-hdr"><span class="pub-logo">🏟️ Academy Management</span></div><div class="auth-wrap"><div class="auth-card"><div class="auth-title">Aceptar invitación</div><div class="auth-sub">Te han invitado a unirte a Academia Evolve</div><div class="fg"><label>Contraseña</label><input class="fc" type="password" placeholder="Elige una contraseña"></div><div class="fg"><label>Confirmar contraseña</label><input class="fc" type="password" placeholder="Repite la contraseña"></div><button class="btn btn-primary w-full" style="justify-content:center" data-action="login">Activar cuenta</button></div></div></div>`;}
+
+function renderPasswordReset(){return `<div class="pub-wrap"><div class="pub-hdr"><span class="pub-logo">🏟️ Academy Management</span></div><div class="auth-wrap"><div class="auth-card"><div class="auth-title">Recuperar contraseña</div><div class="auth-sub">Ingresa tu correo para recibir el enlace de recuperación</div><div class="fg"><label>Correo electrónico</label><input class="fc" type="email" placeholder="correo@academia.com"></div><button class="btn btn-primary w-full" style="justify-content:center">Enviar enlace</button><div class="text-sm text-muted" style="text-align:center;margin-top:14px"><a href="#/login" data-action="navigate" data-route="/login">← Volver al inicio de sesión</a></div></div></div></div>`;}
+
+/* ── MY PROFILE (dashboard by role) ── */
+function renderMyProfile(){
+  const u=me();
+  if(!u)return '';
+  if(S.role==='admin')return renderProfileAdmin();
+  if(S.role==='receptionist')return renderProfileReceptionist();
+  if(S.role==='instructor')return renderProfileInstructor();
+  return renderProfileStudent();
+}
+
+function renderProfileAdmin(){
+  const sum=api.getDashboardSummary();
+  const ar=db.transactions.filter(t=>t.type==='income'&&t.status==='pending');
+  const arTotal=ar.reduce((s,t)=>s+t.amount,0);
+  const revData=api.getRevenueByMonth();
+  const attRate=sum.attendance.average_attendance_rate;
+  const scorecards=[
+    {label:'Ingresos del Mes',value:fmt(sum.revenue.total_paid),sub:'Estado: pagados'},
+    {label:'Estudiantes Activos',value:fmtN(sum.students.total_active),sub:`+${sum.students.new_this_period} este mes`},
+    {label:'Cuentas por Cobrar',value:fmt(arTotal),sub:`${ar.length} transacciones pendientes`},
+    {label:'Asistencia Promedio',value:`${attRate}%`,sub:'Último mes'},
+  ];
+  const arItems=ar.slice(0,6).map(t=>{const s=db.users.find(u=>u.id===t.student_id)||{};return`<tr><td>${esc(s.first_name||'')} ${esc(s.last_name||'')}</td><td>${fmt(t.amount)}</td><td>${fmtDate(t.due_date)}</td><td>${badge(t.status)}</td><td><button class="btn btn-ghost btn-sm" data-action="open-cash-payment" data-enroll-id="${esc(t.enrollment_id||'')}">Cobrar</button></td></tr>`;}).join('');
+  return`<div class="page"><div class="page-hdr"><div><div class="page-title">Bienvenido, ${esc(me().first_name)}</div><div class="page-sub">Resumen del mes actual</div></div></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div><div class="sc-sub">${s.sub}</div></div>`).join('')}</div>
+    <div class="grid-2 gap-4">
+      <div class="chart-wrap"><div class="chart-title">Ingresos por mes</div>${barChart(revData.map(d=>({label:moLabel(d.label),value:d.total})),{color:'#4F46E5',showValues:true})}</div>
+      <div class="tbl-wrap"><div class="card-hdr"><span class="card-title">Cuentas por cobrar</span><button class="btn btn-primary btn-sm" data-action="navigate" data-route="/sales">Ver todas</button></div>${ar.length?`<table class="tbl"><thead><tr><th>Estudiante</th><th>Monto</th><th>Vence</th><th>Estado</th><th></th></tr></thead><tbody>${arItems}</tbody></table>`:`<div class="empty"><div class="empty-icon">✅</div><div class="empty-title">Todo al corriente</div></div>`}</div>
+    </div></div>`;
+}
+
+function renderProfileReceptionist(){
+  const todayStr=today();
+  const todayTxns=db.transactions.filter(t=>t.type==='income'&&t.status==='succeeded'&&t.paid_at?.slice(0,10)===todayStr);
+  const todayTotal=todayTxns.reduce((s,t)=>s+t.amount,0);
+  const pending=db.transactions.filter(t=>t.type==='income'&&t.status==='pending');
+  const withDebt=new Set(pending.map(t=>t.student_id)).size;
+  const scorecards=[{label:'Cobros de Hoy',value:fmt(todayTotal),sub:`${todayTxns.length} transacciones`},{label:'Pagos Pendientes',value:fmt(pending.reduce((s,t)=>s+t.amount,0)),sub:`${pending.length} por cobrar`},{label:'Estudiantes con Deuda',value:fmtN(withDebt),sub:'Cuentas vencidas'},{label:'Inscripciones Activas',value:fmtN(db.enrollments.filter(e=>e.status==='active').length),sub:'Total activas'}];
+  const pendRows=pending.slice(0,8).map(t=>{const s=db.users.find(u=>u.id===t.student_id)||{};return`<tr><td>${esc(s.first_name||'')} ${esc(s.last_name||'')}</td><td>${fmt(t.amount)}</td><td>${fmtDate(t.due_date)}</td><td><button class="btn btn-primary btn-sm" data-action="open-cash-payment" data-enroll-id="${esc(t.enrollment_id||'')}">Cobrar</button></td></tr>`;}).join('');
+  return`<div class="page"><div class="page-hdr"><div class="page-title">Inicio – Recepción</div></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div><div class="sc-sub">${s.sub}</div></div>`).join('')}</div>
+    <div class="tbl-wrap"><div class="card-hdr"><span class="card-title">Pagos pendientes</span></div>${pending.length?`<table class="tbl"><thead><tr><th>Estudiante</th><th>Monto</th><th>Vence</th><th></th></tr></thead><tbody>${pendRows}</tbody></table>`:`<div class="empty"><div class="empty-icon">✅</div><div class="empty-title">Todo al corriente</div></div>`}</div>
+  </div>`;
+}
+
+function renderProfileInstructor(){
+  const mo=monthStr(0);
+  const myClasses=db.classes.filter(c=>c.instructor_id===S.userId);
+  const myClassIds=myClasses.map(c=>c.id);
+  const hours=api._instructorHours(S.userId,`${mo}-01`,today()).toFixed(1);
+  const ua=db.user_academies.find(x=>x.user_id===S.userId&&x.academy_id===S.academyId);
+  const rate=ua?.hourly_rate||0;
+  const pendPayroll=db.transactions.filter(t=>t.category==='payroll'&&t.recipient_id===S.userId&&t.status==='pending').reduce((s,t)=>s+t.amount,0);
+  const todayDow=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()];
+  const todayClasses=myClasses.filter(c=>c.schedule_day===todayDow);
+  const totalStudents=new Set(db.enrollments.filter(e=>myClassIds.includes(e.class_id)&&e.status==='active').map(e=>e.student_id)).size;
+  const scorecards=[{label:'Clases Hoy',value:String(todayClasses.length),sub:todayClasses.map(c=>c.name).join(', ')||'—'},{label:'Mis Estudiantes',value:fmtN(totalStudents),sub:'Inscritos activos'},{label:'Horas Este Mes',value:hours+'h',sub:`Tarifa: ${fmt(rate)}/hr`},{label:'Pago Pendiente',value:fmt(pendPayroll),sub:'Nómina pendiente'}];
+  const classRows=myClasses.map(c=>{const enrolled=api._activeCount(c.id);return`<tr><td><strong>${esc(c.name)}</strong></td><td>${DAYS[c.schedule_day]||c.schedule_day} ${c.schedule_time}</td><td>${enrolled}${c.max_students?`/${c.max_students}`:''}</td><td><button class="btn btn-ghost btn-sm" data-action="open-attendance" data-class-id="${c.id}">Asistencia</button></td></tr>`;}).join('');
+  return`<div class="page"><div class="page-hdr"><div class="page-title">Mi Panel – Instructor</div></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div><div class="sc-sub">${s.sub}</div></div>`).join('')}</div>
+    <div class="tbl-wrap"><div class="card-hdr"><span class="card-title">Mis clases</span></div>${myClasses.length?`<table class="tbl"><thead><tr><th>Clase</th><th>Horario</th><th>Inscritos</th><th></th></tr></thead><tbody>${classRows}</tbody></table>`:`<div class="empty"><div class="empty-icon">📅</div><div class="empty-title">Sin clases asignadas</div><div class="empty-desc">El administrador debe asignarte clases.</div></div>`}</div>
+  </div>`;
+}
+
+function renderProfileStudent(){
+  const myEnrolls=db.enrollments.filter(e=>e.student_id===S.userId);
+  const active=myEnrolls.filter(e=>e.status==='active');
+  const waiting=myEnrolls.filter(e=>e.status==='waiting');
+  const debt=db.transactions.filter(t=>t.student_id===S.userId&&t.type==='income'&&t.status==='pending').reduce((s,t)=>s+t.amount,0);
+  const attRecs=db.attendance.filter(a=>a.user_id===S.userId);
+  const attRate=attRecs.length?Math.round(attRecs.filter(a=>a.status==='present').length/attRecs.length*100):0;
+  const todayDow=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()];
+  const nextClass=active.map(e=>db.classes.find(c=>c.id===e.class_id)).filter(Boolean).find(c=>c.schedule_day===todayDow)||active.map(e=>db.classes.find(c=>c.id===e.class_id)).filter(Boolean)[0];
+  const scorecards=[{label:'Clases Activas',value:fmtN(active.length)},{label:'Próxima Clase',value:nextClass?nextClass.name:'—',sub:nextClass?`${DAYS[nextClass.schedule_day]} ${nextClass.schedule_time}`:''},{label:'Deuda Total',value:fmt(debt),sub:debt?'Pendiente de pago':'Al corriente'},{label:'Mi Asistencia',value:`${attRate}%`}];
+  const rows=[...active,...waiting].map(e=>{const cls=db.classes.find(c=>c.id===e.class_id)||{};const inst=db.users.find(u=>u.id===cls.instructor_id)||{};return`<tr><td><strong>${esc(cls.name||'')}</strong></td><td>${esc(inst.first_name||'')} ${esc(inst.last_name||'')}</td><td>${DAYS[cls.schedule_day]||''} ${cls.schedule_time||''}</td><td>${badge(e.status)}${e.waiting_position?` <span class="text-xs text-muted">#${e.waiting_position}</span>`:''}</td><td>${e.status==='active'?`<button class="btn btn-ghost btn-sm" data-action="open-stripe-payment" data-enroll-id="${e.id}">Pagar</button> `:''}<button class="btn btn-danger btn-sm" data-action="confirm-cancel-enroll" data-enroll-id="${e.id}">Cancelar</button></td></tr>`;}).join('');
+  return`<div class="page"><div class="page-hdr"><div class="page-title">Mi Perfil</div></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div>${s.sub?`<div class="sc-sub">${s.sub}</div>`:''}</div>`).join('')}</div>
+    <div class="tbl-wrap"><div class="card-hdr"><span class="card-title">Mis inscripciones</span><a data-action="navigate" data-route="/classes" class="btn btn-primary btn-sm">Explorar clases</a></div>${rows?`<table class="tbl"><thead><tr><th>Clase</th><th>Instructor</th><th>Horario</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="empty-icon">📅</div><div class="empty-title">Sin inscripciones</div><div class="empty-desc">Explora las clases disponibles según tus suscripciones.</div><button class="btn btn-primary" data-action="navigate" data-route="/classes">Ver clases</button></div>`}</div>
+  </div>`;
+}
+
+/* ── STUDENTS ── */
+function renderStudents(){
+  if(S.role!=='admin'&&S.role!=='receptionist')return`<div class="page"><div class="empty"><div class="empty-title">Sin acceso</div></div></div>`;
+  const students=db.users.filter(u=>u.role==='student');
+  const activeStudents=students.filter(s=>s.is_active);
+  const newThisMonth=students.filter(s=>s.created_at?.slice(0,7)===monthStr(0)).length;
+  const withDebt=new Set(db.transactions.filter(t=>t.type==='income'&&t.status==='pending').map(t=>t.student_id)).size;
+  const attRecs=db.attendance.filter(a=>a.session_date>=daysAgo(30));
+  const avgAtt=attRecs.length?Math.round(attRecs.filter(a=>a.status==='present').length/attRecs.length*100):0;
+  const scorecards=[{label:'Estudiantes Activos',value:fmtN(activeStudents.length)},{label:'Nuevos Este Mes',value:fmtN(newThisMonth)},{label:'Con Deuda',value:fmtN(withDebt)},{label:'Asistencia Promedio',value:`${avgAtt}%`,sub:'Último mes'}];
+  const rows=activeStudents.map(s=>{
+    const sCats=api._studentCats(s.id).map(id=>db.categories.find(c=>c.id===id)).filter(Boolean);
+    const enrCount=db.enrollments.filter(e=>e.student_id===s.id&&e.status==='active').length;
+    const debt=db.transactions.filter(t=>t.student_id===s.id&&t.type==='income'&&t.status==='pending').reduce((sum,t)=>sum+t.amount,0);
+    const attR=db.attendance.filter(a=>a.user_id===s.id);
+    const att=attR.length?Math.round(attR.filter(a=>a.status==='present').length/attR.length*100):0;
+    return`<tr><td><strong>${esc(s.first_name)} ${esc(s.last_name)}</strong><br><span class="text-xs text-muted">${esc(s.email)}</span></td><td>${sCats.map(c=>chip(c.name,c.color)).join(' ')}</td><td>${fmtN(enrCount)}</td><td>${debt?`<span style="color:var(--error);font-weight:600">${fmt(debt)}</span>`:badge('succeeded','Al día')}</td><td>${att}%</td><td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" data-action="open-student-detail" data-user-id="${s.id}">Ver</button> <button class="btn btn-ghost btn-sm" data-action="open-edit-student" data-user-id="${s.id}">Editar</button>${S.role==='admin'?` <button class="btn btn-ghost btn-sm" data-action="open-assign-cats" data-user-id="${s.id}">Cats</button>`:''}</td></tr>`;
+  }).join('');
+  return`<div class="page"><div class="page-hdr"><div><div class="page-title">Estudiantes</div><div class="page-sub">Gestión de alumnos y suscripciones</div></div><div style="display:flex;gap:8px"><button class="btn btn-secondary" data-action="open-invite-student">+ Invitar</button><button class="btn btn-primary" data-action="open-create-student">+ Nuevo</button></div></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div>${s.sub?`<div class="sc-sub">${s.sub}</div>`:''}</div>`).join('')}</div>
+    <div class="tbl-wrap"><div class="tbl-toolbar"><input class="fc-search" placeholder="Buscar por nombre o correo…" data-action="search-students"></div>${students.length?`<table class="tbl"><thead><tr><th>Estudiante</th><th>Categorías</th><th>Clases</th><th>Deuda</th><th>Asistencia</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="empty-icon">👥</div><div class="empty-title">Aún no hay estudiantes registrados</div><button class="btn btn-primary" data-action="open-create-student">Agregar primer estudiante</button></div>`}</div>
+  </div>`;
+}
+
+/* ── INSTRUCTORS ── */
+function renderInstructors(){
+  if(S.role!=='admin'&&S.role!=='receptionist')return`<div class="page"><div class="empty"><div class="empty-title">Sin acceso</div></div></div>`;
+  const insts=db.users.filter(u=>u.role==='instructor'&&u.is_active);
+  const mo=monthStr(0);const start=`${mo}-01`;const end=today();
+  let totalHours=0,totalPay=0,paidThisMo=0,pendingPay=0;
+  insts.forEach(inst=>{
+    const ua=db.user_academies.find(x=>x.user_id===inst.id&&x.academy_id===S.academyId);
+    const h=api._instructorHours(inst.id,start,end);
+    totalHours+=h;totalPay+=h*(ua?.hourly_rate||0);
+  });
+  paidThisMo=db.transactions.filter(t=>t.category==='payroll'&&t.status==='succeeded'&&t.created_at.slice(0,7)===mo).reduce((s,t)=>s+t.amount,0);
+  pendingPay=db.transactions.filter(t=>t.category==='payroll'&&t.status==='pending').reduce((s,t)=>s+t.amount,0);
+  const scorecards=[{label:'Total Horas del Mes',value:`${totalHours.toFixed(1)}h`},{label:'Monto Total a Pagar',value:fmt(totalPay)},{label:'Pagado Este Mes',value:fmt(paidThisMo)},{label:'Pendiente de Pago',value:fmt(pendingPay)}];
+  const rows=insts.map(inst=>{
+    const ua=db.user_academies.find(x=>x.user_id===inst.id&&x.academy_id===S.academyId);
+    const h=api._instructorHours(inst.id,start,end);
+    const pay=h*(ua?.hourly_rate||0);
+    const myClasses=db.classes.filter(c=>c.instructor_id===inst.id).map(c=>c.name).join(', ');
+    return`<tr><td><strong>${esc(inst.first_name)} ${esc(inst.last_name)}</strong><br><span class="text-xs text-muted">${esc(inst.email)}</span></td><td class="text-sm text-muted">${esc(myClasses)||'—'}</td><td>${h.toFixed(1)}h</td><td>${fmt(ua?.hourly_rate||0)}/hr</td><td><strong>${fmt(pay)}</strong></td><td><button class="btn btn-primary btn-sm" data-action="open-payroll" data-user-id="${inst.id}">Registrar pago</button></td></tr>`;
+  }).join('');
+  return`<div class="page"><div class="page-hdr"><div><div class="page-title">Instructores</div><div class="page-sub">Gestión de nómina y horas</div></div><button class="btn btn-primary" data-action="open-payroll" data-user-id="">+ Registrar pago nómina</button></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div></div>`).join('')}</div>
+    <div class="tbl-wrap">${insts.length?`<table class="tbl"><thead><tr><th>Instructor</th><th>Clases</th><th>Horas</th><th>Tarifa</th><th>Total a Pagar</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="empty-icon">🏋️</div><div class="empty-title">Sin instructores registrados</div></div>`}</div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE RENDERERS – PART 2
+   (classes + categories + sales + dashboard + settings)
+═══════════════════════════════════════════════════════════ */
+/* ── CLASSES ── */
+function renderClasses(){
+  const {classes}=api.listClasses({});
+  const isAdminRecep=S.role==='admin'||S.role==='receptionist';
+  // scorecards differ by role
+  let scorecards;
+  if(isAdminRecep){
+    const debtEnroll=db.transactions.filter(t=>t.subcategory==='enrollment_fee'&&t.status==='pending').reduce((s,t)=>s+t.amount,0);
+    const debtSub=db.transactions.filter(t=>t.subcategory==='monthly_subscription'&&t.status==='pending').reduce((s,t)=>s+t.amount,0);
+    const allIncome=db.transactions.filter(t=>t.type==='income');
+    const pct=allIncome.length?Math.round(allIncome.filter(t=>t.status==='succeeded').length/allIncome.length*100):0;
+    scorecards=[{label:'Total Estudiantes',value:fmtN(db.users.filter(u=>u.role==='student'&&u.is_active).length)},{label:'Deuda Matrícula',value:fmt(debtEnroll)},{label:'Deuda Mensualidad',value:fmt(debtSub)},{label:'% de Cobro',value:`${pct}%`}];
+  } else if(S.role==='instructor'){
+    const myC=db.classes.filter(c=>c.instructor_id===S.userId);
+    const myIds=myC.map(c=>c.id);
+    const stuCount=new Set(db.enrollments.filter(e=>myIds.includes(e.class_id)&&e.status==='active').map(e=>e.student_id)).size;
+    const todayDow=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()];
+    scorecards=[{label:'Mis Clases Activas',value:fmtN(myC.length)},{label:'Total Inscritos',value:fmtN(stuCount)},{label:'Clases Hoy',value:fmtN(myC.filter(c=>c.schedule_day===todayDow).length)},{label:'Clases Esta Semana',value:fmtN(myC.length)}];
+  } else {
+    const myEnr=db.enrollments.filter(e=>e.student_id===S.userId&&e.status==='active');
+    const debt=db.transactions.filter(t=>t.student_id===S.userId&&t.type==='income'&&t.status==='pending').reduce((s,t)=>s+t.amount,0);
+    const att=db.attendance.filter(a=>a.user_id===S.userId);
+    const attR=att.length?Math.round(att.filter(a=>a.status==='present').length/att.length*100):0;
+    const nextC=myEnr.map(e=>db.classes.find(c=>c.id===e.class_id)).filter(Boolean)[0];
+    scorecards=[{label:'Clases Inscritas',value:fmtN(myEnr.length)},{label:'Próxima Clase',value:nextC?nextC.name:'—'},{label:'Deuda Total',value:fmt(debt)},{label:'Asistencia',value:`${attR}%`}];
+  }
+
+  const classRows=classes.map(c=>{
+    const ccats=api._classCats(c.id).map(id=>db.categories.find(x=>x.id===id)).filter(Boolean);
+    const inst=db.users.find(u=>u.id===c.instructor_id)||{};
+    const full=c.max_students&&api._activeCount(c.id)>=c.max_students;
+    let ctaHtml='';
+    if(S.role==='admin') ctaHtml=`<button class="btn btn-ghost btn-sm" data-action="open-edit-class" data-class-id="${c.id}">Editar</button> <button class="btn btn-ghost btn-sm" data-action="open-waitlist" data-class-id="${c.id}">Lista espera</button>`;
+    else if(S.role==='receptionist') ctaHtml=`<button class="btn btn-primary btn-sm" data-action="open-enroll-student" data-class-id="${c.id}">Inscribir</button>`;
+    else if(S.role==='instructor') ctaHtml=`<button class="btn btn-primary btn-sm" data-action="open-attendance" data-class-id="${c.id}">Asistencia</button>`;
+    else {
+      const myEnroll=db.enrollments.find(e=>e.student_id===S.userId&&e.class_id===c.id&&e.status!=='cancelled');
+      if(myEnroll) ctaHtml=badge(myEnroll.status)+(myEnroll.status==='active'?` <button class="btn btn-ghost btn-sm" data-action="open-stripe-payment" data-enroll-id="${myEnroll.id}">Pagar</button>`:'');
+      else ctaHtml=`<button class="btn btn-primary btn-sm" data-action="enroll-student-self" data-class-id="${c.id}">${full?'Lista de espera':'Inscribirse'}</button>`;
+    }
+    return`<tr><td><strong>${esc(c.name)}</strong><br><span class="text-xs text-muted">${esc(c.location||'')}</span></td><td>${ccats.map(x=>chip(x.name,x.color)).join(' ')}</td><td>${esc(inst.first_name||'')} ${esc(inst.last_name||'')}</td><td>${DAYS[c.schedule_day]||c.schedule_day}<br><span class="text-xs">${c.schedule_time} · ${c.duration_minutes}min</span></td><td>${api._activeCount(c.id)}${c.max_students?`/${c.max_students}`:''}${c.waiting_list_count>0?` <span class="text-xs text-muted">(+${c.waiting_list_count} espera)</span>`:''}</td><td>${badge(full?'warning':'success',full?'Lleno':'Disponible')}</td><td style="white-space:nowrap">${ctaHtml}</td></tr>`;
+  }).join('');
+
+  // debt panel (admin/recep only)
+  const pendingTxns=db.transactions.filter(t=>t.type==='income'&&t.status==='pending');
+  const debtTotal=pendingTxns.reduce((s,t)=>s+t.amount,0);
+  const debtStudents=new Set(pendingTxns.map(t=>t.student_id)).size;
+  const debtPanel=isAdminRecep?`<div class="debt-panel">
+    <div class="card card-body" style="text-align:center"><div class="sc-label">Deuda Total Vigente</div><div class="sc-value" style="color:var(--error)">${fmt(debtTotal)}</div><div class="sc-sub">${debtStudents} estudiantes con deuda</div></div>
+    <div class="chart-wrap"><div class="chart-title">Deuda por tipo</div>${donutChart([{value:db.transactions.filter(t=>t.subcategory==='monthly_subscription'&&t.status==='pending').reduce((s,t)=>s+t.amount,0),color:'#4F46E5'},{value:db.transactions.filter(t=>t.subcategory==='enrollment_fee'&&t.status==='pending').reduce((s,t)=>s+t.amount,0),color:'#0EA5E9'}],{size:120})}<div class="chart-legend"><div class="chart-legend-item"><div class="legend-dot" style="background:#4F46E5"></div>Mensualidad</div><div class="chart-legend-item"><div class="legend-dot" style="background:#0EA5E9"></div>Matrícula</div></div></div>
+  </div>`:'';
+
+  return`<div class="page"><div class="page-hdr"><div><div class="page-title">Clases</div><div class="page-sub">Gestión de clases e inscripciones</div></div>${S.role==='admin'?`<button class="btn btn-primary" data-action="open-create-class">+ Nueva clase</button>`:''}</div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div>${s.sub?`<div class="sc-sub">${s.sub}</div>`:''}</div>`).join('')}</div>
+    <div class="classes-body">
+      <div class="classes-list-col">
+        <div class="tbl-wrap">${classes.length?`<table class="tbl"><thead><tr><th>Clase</th><th>Categorías</th><th>Instructor</th><th>Horario</th><th>Cupo</th><th>Estado</th><th></th></tr></thead><tbody>${classRows}</tbody></table>`:`<div class="empty"><div class="empty-icon">📅</div><div class="empty-title">${S.role==='student'?'No hay clases disponibles para tus suscripciones':'Sin clases registradas'}</div>${S.role==='admin'?`<button class="btn btn-primary" data-action="open-create-class">Crear primera clase</button>`:''}</div>`}</div>
+      </div>
+      ${debtPanel}
+    </div>
+  </div>`;
+}
+
+/* ── CATEGORIES ── */
+function renderCategories(){
+  if(S.role!=='admin')return`<div class="page"><div class="empty"><div class="empty-title">Solo administradores</div></div></div>`;
+  const cats=db.categories;
+  const totalStudents=new Set(db.student_categories.map(s=>s.student_id)).size;
+  const mrr=cats.reduce((s,c)=>{const n=db.student_categories.filter(x=>x.category_id===c.id).length;return s+n*c.monthly_fee;},0);
+  const withStudents=cats.filter(c=>db.student_categories.some(s=>s.category_id===c.id)).length;
+  const scorecards=[{label:'Total Categorías',value:fmtN(cats.length)},{label:'Con Estudiantes',value:fmtN(withStudents)},{label:'Estudiantes Suscritos',value:fmtN(totalStudents)},{label:'MRR Esperado',value:fmt(mrr),sub:'Mensualidades activas'}];
+  const rows=cats.map(c=>{
+    const clsCount=db.class_categories.filter(x=>x.category_id===c.id).length;
+    const stuCount=db.student_categories.filter(x=>x.category_id===c.id).length;
+    return`<tr><td><div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:${c.color};flex-shrink:0"></div><strong>${esc(c.name)}</strong></div><div class="text-xs text-muted">${esc(c.description||'')}</div></td><td>${fmtN(clsCount)}</td><td>${fmtN(stuCount)}</td><td>${fmt(c.monthly_fee)}</td><td>${fmt(c.enrollment_fee)}</td><td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" data-action="open-edit-cat" data-cat-id="${c.id}">Editar</button> <button class="btn btn-danger btn-sm" data-action="delete-cat" data-cat-id="${c.id}">Eliminar</button></td></tr>`;
+  }).join('');
+  return`<div class="page"><div class="page-hdr"><div><div class="page-title">Categorías</div><div class="page-sub">Niveles de suscripción que controlan el acceso a clases</div></div><button class="btn btn-primary" data-action="open-create-cat">+ Nueva categoría</button></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div>${s.sub?`<div class="sc-sub">${s.sub}</div>`:''}</div>`).join('')}</div>
+    <div class="tbl-wrap">${cats.length?`<table class="tbl"><thead><tr><th>Categoría</th><th>Clases</th><th>Estudiantes</th><th>Mensualidad</th><th>Matrícula</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="empty-icon">🏷️</div><div class="empty-title">No hay categorías</div><div class="empty-desc">Sin categorías los estudiantes no podrán inscribirse en clases.</div><button class="btn btn-primary" data-action="open-create-cat">Crear primera categoría</button></div>`}</div>
+  </div>`;
+}
+
+/* ── SALES DETAILS ── */
+function renderSalesDetails(){
+  if(S.role!=='admin'&&S.role!=='receptionist')return`<div class="page"><div class="empty"><div class="empty-title">Sin acceso</div></div></div>`;
+  const txns=db.transactions.filter(t=>t.type==='income').sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  const total=txns.filter(t=>t.status==='succeeded').reduce((s,t)=>s+t.amount,0);
+  const pending=txns.filter(t=>t.status==='pending').reduce((s,t)=>s+t.amount,0);
+  const thisMo=txns.filter(t=>t.created_at.slice(0,7)===monthStr(0)&&t.status==='succeeded').reduce((s,t)=>s+t.amount,0);
+  const scorecards=[{label:'Ingresos Totales',value:fmt(total)},{label:'Transacciones',value:fmtN(txns.length)},{label:'Pagos del Mes',value:fmt(thisMo)},{label:'Pagos Pendientes',value:fmt(pending)}];
+  // donut by subcategory
+  const bySubcat={};txns.filter(t=>t.status==='succeeded').forEach(t=>{bySubcat[t.subcategory]=(bySubcat[t.subcategory]||0)+t.amount;});
+  const scColors=['#4F46E5','#0EA5E9','#F97316','#A855F7','#22C55E'];
+  const donutData=Object.entries(bySubcat).map(([k,v],i)=>({label:SL[k]||k,value:v,color:scColors[i%scColors.length]}));
+  const rows=txns.slice(0,40).map(t=>{
+    const s=db.users.find(u=>u.id===t.student_id)||{};
+    const cls=t.enrollment_id?db.classes.find(c=>c.id===(db.enrollments.find(e=>e.id===t.enrollment_id)||{}).class_id)||{}:{};
+    return`<tr><td>${fmtDate(t.created_at.slice(0,10))}</td><td>${esc(s.first_name||'—')} ${esc(s.last_name||'')}</td><td class="text-sm">${esc(cls.name||'—')}</td><td><span class="badge badge-muted">${SL[t.subcategory]||t.subcategory}</span></td><td>${SL[t.payment_method]||t.payment_method||'—'}</td><td style="text-align:right;font-weight:600">${fmt(t.amount)}</td><td>${badge(t.status)}</td><td style="white-space:nowrap">${t.status==='pending'?`<button class="btn btn-primary btn-sm" data-action="open-cash-payment" data-enroll-id="${esc(t.enrollment_id||'')}">Cobrar</button>`:''}</td></tr>`;
+  }).join('');
+  return`<div class="page"><div class="page-hdr"><div><div class="page-title">Detalles de Ventas</div><div class="page-sub">Transacciones e ingresos</div></div><button class="btn btn-primary" data-action="open-cash-payment" data-enroll-id="">+ Registrar pago</button></div>
+    <div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div></div>`).join('')}</div>
+    <div class="sales-body">
+      <div class="sales-list-col"><div class="tbl-wrap">${txns.length?`<table class="tbl"><thead><tr><th>Fecha</th><th>Estudiante</th><th>Clase</th><th>Tipo</th><th>Método</th><th>Monto</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty"><div class="empty-title">No hay ventas registradas</div></div>`}</div></div>
+      <div class="sales-summary">
+        <div class="chart-wrap"><div class="chart-title">Por tipo de ingreso</div>${donutChart(donutData,{size:140})}<div class="chart-legend">${donutData.map(d=>`<div class="chart-legend-item"><div class="legend-dot" style="background:${d.color}"></div>${esc(d.label)} – ${fmt(d.value)}</div>`).join('')}</div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── DASHBOARD (5 tabs) ── */
+function renderDashboard(route){
+  if(S.role!=='admin')return`<div class="page"><div class="empty"><div class="empty-title">Solo administradores</div></div></div>`;
+  const tabs=[{label:'Resumen',route:'/dashboard'},{label:'Ingresos',route:'/dashboard/ingresos'},{label:'Gastos',route:'/dashboard/gastos'},{label:'P&L',route:'/dashboard/pl'},{label:'Nómina',route:'/dashboard/nomina'}];
+  const tabBar=`<div class="dash-tab-bar">${tabs.map(t=>`<div class="dash-tab${route===t.route?' active':''}" data-action="navigate" data-route="${t.route}">${t.label}</div>`).join('')}</div>`;
+  let body='';
+  if(route==='/dashboard') body=renderDashSummary();
+  else if(route==='/dashboard/ingresos') body=renderDashIngresos();
+  else if(route==='/dashboard/gastos') body=renderDashGastos();
+  else if(route==='/dashboard/pl') body=renderDashPL();
+  else if(route==='/dashboard/nomina') body=renderDashNomina();
+  return tabBar+`<div class="page">${body}</div>`;
+}
+
+function renderDashSummary(){
+  const sum=api.getDashboardSummary();
+  const rev=api.getRevenueByMonth();
+  const exp=api.getExpensesByMonth();
+  const lastRev=rev[rev.length-1]||{};const lastExp=exp[exp.length-1]||{};
+  const net=lastRev.total-lastExp.total;
+  const margin=lastRev.total?Math.round(net/lastRev.total*100):0;
+  const scorecards=[{label:'Ingresos Totales',value:fmt(lastRev.total||0)},{label:'Gastos Totales',value:fmt(lastExp.total||0)},{label:'Utilidad Neta',value:fmt(net),style:net>=0?'color:var(--success)':'color:var(--error)'},{label:'Margen de Utilidad',value:`${margin}%`}];
+  const recentExp=db.transactions.filter(t=>t.type==='expense').sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,6);
+  const expRows=recentExp.map(t=>`<tr><td>${fmtDate(t.created_at.slice(0,10))}</td><td>${SL[t.subcategory]||t.subcategory}</td><td>${SL[t.category]||t.category}</td><td>${SL[t.payment_method]||t.payment_method||'—'}</td><td style="text-align:right">${fmt(t.amount)}</td></tr>`).join('');
+  const incomeBySubcat=[{k:'monthly_subscription',label:'Mensualidades',color:'#4F46E5'},{k:'enrollment_fee',label:'Matrículas',color:'#0EA5E9'},{k:'equipment_sale',label:'Equipos',color:'#F97316'},{k:'uniform_sale',label:'Uniformes',color:'#A855F7'}];
+  const barData=incomeBySubcat.map(x=>({label:x.label,value:db.transactions.filter(t=>t.subcategory===x.k&&t.status==='succeeded').reduce((s,t)=>s+t.amount,0)}));
+  return`<div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value"${s.style?` style="${s.style}"`:''}>${s.value}</div></div>`).join('')}</div>
+    <div class="grid-2 gap-4 mb-5">
+      <div class="chart-wrap"><div class="chart-title">Ingresos por categoría</div>${barChart(barData,{color:'#4F46E5',showValues:true})}</div>
+      <div class="card card-body"><div class="sc-label">Resumen del mes</div>${[['Ingresos',lastRev.total||0,'var(--success)'],['Gastos',lastExp.total||0,'var(--error)'],['Utilidad',net,net>=0?'var(--success)':'var(--error)']].map(([l,v,c])=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span class="text-muted">${l}</span><span style="font-weight:700;color:${c}">${fmt(v)}</span></div>`).join('')}</div>
+    </div>
+    <div class="grid-2 gap-4">
+      <div class="tbl-wrap"><div class="card-hdr"><span class="card-title">Gastos recientes</span><button class="btn btn-primary btn-sm" data-action="open-create-expense">+ Nuevo gasto</button></div>${recentExp.length?`<table class="tbl"><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Método</th><th>Monto</th></tr></thead><tbody>${expRows}</tbody></table>`:`<div class="empty empty-desc">No hay gastos registrados este mes.</div>`}</div>
+      <div class="card card-body"><div class="sc-label mb-4" style="margin-bottom:12px">P&L del mes</div>${[['Ingresos totales',lastRev.total||0],['Costo de ventas',0],['Ganancia bruta',lastRev.total||0],['Gastos operativos',lastExp.total||0],['Nómina',db.transactions.filter(t=>t.category==='payroll'&&t.created_at.slice(0,7)===monthStr(0)).reduce((s,t)=>s+t.amount,0)],['Utilidad neta',net]].map(([l,v],i)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);${i===5?'font-weight:700':''}"><span>${l}</span><span style="color:${i===5&&v<0?'var(--error)':i===5?'var(--success)':'inherit'}">${fmt(v)}</span></div>`).join('')}<button class="btn btn-ghost btn-sm mt-4" data-action="navigate" data-route="/dashboard/pl" style="margin-top:12px">Ver reporte completo →</button></div>
+    </div>`;
+}
+
+function renderDashIngresos(){
+  const rev=api.getRevenueByMonth();
+  const txns=db.transactions.filter(t=>t.type==='income').sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  const total=txns.filter(t=>t.status==='succeeded').reduce((s,t)=>s+t.amount,0);
+  const days=new Set(txns.filter(t=>t.status==='succeeded').map(t=>t.created_at.slice(0,10))).size||1;
+  const avgDay=total/days;const ytdTotal=db.transactions.filter(t=>t.type==='income'&&t.status==='succeeded'&&t.created_at.slice(0,4)===new Date().getFullYear().toString()).reduce((s,t)=>s+t.amount,0);
+  const scorecards=[{label:'Ingresos Totales',value:fmt(total)},{label:'Transacciones',value:fmtN(txns.length)},{label:'Promedio Diario',value:fmt(avgDay)},{label:'Acumulado del Año',value:fmt(ytdTotal)}];
+  const keys=['monthly_subscription','enrollment_fee','equipment_sale','uniform_sale'];
+  const colors=['#4F46E5','#0EA5E9','#F97316','#A855F7'];
+  const byMethod={};txns.filter(t=>t.status==='succeeded').forEach(t=>{byMethod[t.payment_method]=(byMethod[t.payment_method]||0)+t.amount;});
+  const rows=txns.slice(0,30).map(t=>{const s=db.users.find(u=>u.id===t.student_id)||{};return`<tr><td>${fmtDate(t.created_at.slice(0,10))}</td><td>${esc(s.first_name||'—')} ${esc(s.last_name||'')}</td><td><span class="badge badge-muted">${SL[t.subcategory]||t.subcategory}</span></td><td>${SL[t.payment_method]||'—'}</td><td style="text-align:right">${fmt(t.amount)}</td><td>${badge(t.status)}</td></tr>`}).join('');
+  return`<div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div></div>`).join('')}</div>
+    <div class="grid-2 gap-4 mb-5">
+      <div class="chart-wrap"><div class="chart-title">Ingresos por mes (apilado)</div>${stackedBarChart(rev.map(d=>({label:moLabel(d.label),...d})),keys,colors)}<div class="chart-legend">${keys.map((k,i)=>`<div class="chart-legend-item"><div class="legend-dot" style="background:${colors[i]}"></div>${SL[k]||k}</div>`).join('')}</div></div>
+      <div class="chart-wrap"><div class="chart-title">Por método de pago</div>${donutChart(Object.entries(byMethod).map(([k,v],i)=>({label:SL[k]||k,value:v,color:colors[i%colors.length]})),{size:130})}</div>
+    </div>
+    <div class="tbl-wrap"><div class="tbl-toolbar"><span style="font-weight:600">Lista de ingresos</span></div>${rows?`<table class="tbl"><thead><tr><th>Fecha</th><th>Estudiante</th><th>Tipo</th><th>Método</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty empty-desc">No hay ingresos registrados.</div>`}</div>`;
+}
+
+function renderDashGastos(){
+  const exp=api.getExpensesByMonth();
+  const txns=db.transactions.filter(t=>t.type==='expense').sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  const total=txns.filter(t=>t.status==='succeeded').reduce((s,t)=>s+t.amount,0);
+  const days=new Set(txns.map(t=>t.created_at.slice(0,10))).size||1;
+  const scorecards=[{label:'Gastos Totales',value:fmt(total)},{label:'Transacciones',value:fmtN(txns.length)},{label:'Promedio Diario',value:fmt(total/days)},{label:'Presupuesto Mensual',value:'$40,000',sub:'Utilizado: '+(Math.round(total/40000*100))+'%'}];
+  const bySubcat={};txns.forEach(t=>{bySubcat[t.subcategory]=(bySubcat[t.subcategory]||0)+t.amount;});
+  const byMethod={};txns.forEach(t=>{byMethod[t.payment_method]=(byMethod[t.payment_method]||0)+t.amount;});
+  const expColors=['#EF4444','#6B7280','#64748B','#F59E0B','#10B981','#06B6D4'];
+  const rows=txns.slice(0,30).map(t=>{const r=db.users.find(u=>u.id===t.recipient_id)||{};return`<tr><td>${fmtDate(t.created_at.slice(0,10))}</td><td>${SL[t.subcategory]||t.subcategory}</td><td>${SL[t.category]||t.category}</td><td>${SL[t.payment_method]||'—'}</td><td style="text-align:right">${fmt(t.amount)}</td><td>${badge(t.status)}</td></tr>`}).join('');
+  return`<div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div>${s.sub?`<div class="sc-sub">${s.sub}</div>`:''}</div>`).join('')}</div>
+    <div class="grid-2 gap-4 mb-5">
+      <div class="chart-wrap"><div class="chart-title">Por categoría de gasto</div>${barChart(Object.entries(bySubcat).map(([k,v])=>({label:SL[k]||k,value:v})).sort((a,b)=>b.value-a.value).slice(0,6),{colors:expColors,showValues:true})}</div>
+      <div class="chart-wrap"><div class="chart-title">Por método de pago</div>${donutChart(Object.entries(byMethod).map(([k,v],i)=>({label:SL[k]||k,value:v,color:expColors[i%expColors.length]})),{size:130})}</div>
+    </div>
+    <div class="tbl-wrap"><div class="tbl-toolbar"><span style="font-weight:600">Lista de gastos</span><button class="btn btn-primary btn-sm" data-action="open-create-expense" style="margin-left:auto">+ Nuevo gasto</button></div>${rows?`<table class="tbl"><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Método</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty empty-desc">No hay gastos registrados.</div>`}</div>`;
+}
+
+function renderDashPL(){
+  const pl=api.getPLByMonth();
+  const mo=monthStr(0);
+  const rev=db.transactions.filter(t=>t.type==='income'&&t.status==='succeeded'&&t.created_at.slice(0,7)===mo).reduce((s,t)=>s+t.amount,0);
+  const exp=db.transactions.filter(t=>t.type==='expense'&&t.category==='expense'&&t.created_at.slice(0,7)===mo).reduce((s,t)=>s+t.amount,0);
+  const nom=db.transactions.filter(t=>t.category==='payroll'&&t.created_at.slice(0,7)===mo).reduce((s,t)=>s+t.amount,0);
+  const net=rev-exp-nom;
+  const scorecards=[{label:'Ingresos del Mes',value:fmt(rev)},{label:'Gastos del Mes',value:fmt(exp)},{label:'Nómina del Mes',value:fmt(nom)},{label:'Utilidad Neta',value:fmt(net),style:net>=0?'color:var(--success)':'color:var(--error)'}];
+  const incCats=['monthly_subscription','enrollment_fee','equipment_sale','uniform_sale','other'];
+  const expCats=['payroll','rent','utilities','marketing','maintenance','equipment'];
+  const incRows=incCats.map(k=>{const v=db.transactions.filter(t=>t.subcategory===k&&t.type==='income'&&t.status==='succeeded'&&t.created_at.slice(0,7)===mo).reduce((s,t)=>s+t.amount,0);const n=db.transactions.filter(t=>t.subcategory===k&&t.type==='income'&&t.created_at.slice(0,7)===mo).length;return`<tr><td>${SL[k]||k}</td><td style="text-align:center">${n}</td><td style="text-align:right;font-weight:600">${fmt(v)}</td></tr>`;}).join('');
+  const expRows2=expCats.map(k=>{const v=db.transactions.filter(t=>t.subcategory===k&&t.status==='succeeded'&&t.created_at.slice(0,7)===mo).reduce((s,t)=>s+t.amount,0);const n=db.transactions.filter(t=>t.subcategory===k&&t.created_at.slice(0,7)===mo).length;return`<tr><td>${SL[k]||k}</td><td style="text-align:center">${n}</td><td style="text-align:right;font-weight:600">${fmt(v)}</td></tr>`;}).join('');
+  return`<div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value"${s.style?` style="${s.style}"`:''}>${s.value}</div></div>`).join('')}</div>
+    <div class="grid-2 gap-4 mb-5">
+      <div class="tbl-wrap"><div class="card-hdr"><span class="card-title">Desglose de ingresos</span></div><table class="tbl"><thead><tr><th>Categoría</th><th style="text-align:center">Transacciones</th><th style="text-align:right">Total</th></tr></thead><tbody>${incRows}<tr style="border-top:2px solid var(--border);font-weight:700"><td>TOTAL</td><td></td><td style="text-align:right">${fmt(rev)}</td></tr></tbody></table></div>
+      <div class="tbl-wrap"><div class="card-hdr"><span class="card-title">Desglose de gastos</span></div><table class="tbl"><thead><tr><th>Categoría</th><th style="text-align:center">Transacciones</th><th style="text-align:right">Total</th></tr></thead><tbody>${expRows2}<tr style="border-top:2px solid var(--border);font-weight:700"><td>TOTAL</td><td></td><td style="text-align:right">${fmt(exp+nom)}</td></tr></tbody></table></div>
+    </div>
+    <div class="grid-2 gap-4">
+      <div class="chart-wrap"><div class="chart-title">Utilidad neta mensual</div>${lineChart(pl.map(d=>({label:moLabel(d.label),value:d.profit})),{color:'#4F46E5'})}</div>
+      <div class="card card-body"><div class="sc-label" style="margin-bottom:12px">Resumen del mes</div>${[['Ingresos totales',rev,null],['Costo de ventas',0,null],['Ingresos netos',rev,null],['Gastos operativos',exp,null],['Nómina',nom,null],['Utilidad neta',net,net>=0?'var(--success)':'var(--error)']].map(([l,v,c],i)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);${i===5?'font-weight:700':''}"><span class="${i===5?'':'text-muted'}">${l}</span><span style="color:${c||'inherit'}">${fmt(v)}</span></div>`).join('')}</div>
+    </div>`;
+}
+
+function renderDashNomina(){
+  const payroll=db.transactions.filter(t=>t.category==='payroll').sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  const mo=monthStr(0);
+  const thisMo=payroll.filter(t=>t.created_at.slice(0,7)===mo);
+  const totalMo=thisMo.reduce((s,t)=>s+t.amount,0);
+  const paidMo=thisMo.filter(t=>t.status==='succeeded').reduce((s,t)=>s+t.amount,0);
+  const empPaid=new Set(thisMo.filter(t=>t.status==='succeeded').map(t=>t.recipient_id)).size;
+  const avgPay=empPaid?paidMo/empPaid:0;
+  const scorecards=[{label:'Nómina Total del Mes',value:fmt(totalMo)},{label:'Empleados Pagados',value:fmtN(empPaid)},{label:'Pago Promedio',value:fmt(avgPay)},{label:'Pendiente de Pago',value:fmt(thisMo.filter(t=>t.status==='pending').reduce((s,t)=>s+t.amount,0))}];
+  const rows=payroll.slice(0,20).map(t=>{const u=db.users.find(x=>x.id===t.recipient_id)||{};return`<tr><td><strong>${esc(u.first_name||'—')} ${esc(u.last_name||'')}</strong></td><td>${badge(u.role||'muted',{instructor:'Instructor',receptionist:'Recepcionista'}[u.role]||u.role)}</td><td>${SL[t.payroll_type]||t.payroll_type||'—'}</td><td class="text-sm text-muted">${fmtDate(t.period_start)} – ${fmtDate(t.period_end)}</td><td style="text-align:right;font-weight:600">${fmt(t.amount)}</td><td>${SL[t.payment_method]||'—'}</td><td>${badge(t.status)}</td></tr>`;}).join('');
+  const pl=api.getPLByMonth();
+  const nomByMo=pl.map(d=>({label:moLabel(d.label),value:db.transactions.filter(t=>t.category==='payroll'&&t.created_at.slice(0,7)===d.label).reduce((s,t)=>s+t.amount,0)}));
+  const byType={hourly:0,salary:0,commission:0};payroll.forEach(t=>{if(t.payroll_type)byType[t.payroll_type]=(byType[t.payroll_type]||0)+t.amount;});
+  return`<div class="scorecards">${scorecards.map(s=>`<div class="scorecard"><div class="sc-label">${s.label}</div><div class="sc-value">${s.value}</div></div>`).join('')}</div>
+    <div class="tbl-wrap mb-5"><div class="tbl-toolbar"><span style="font-weight:600">Registros de nómina</span><button class="btn btn-primary btn-sm" data-action="open-payroll" data-user-id="" style="margin-left:auto">+ Registrar pago</button></div>${rows?`<table class="tbl"><thead><tr><th>Empleado</th><th>Rol</th><th>Tipo</th><th>Período</th><th>Monto</th><th>Método</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty empty-desc">No hay pagos de nómina registrados.</div>`}</div>
+    <div class="grid-2 gap-4">
+      <div class="chart-wrap"><div class="chart-title">Por tipo de pago</div>${donutChart([{label:'Por hora',value:byType.hourly,color:'#4F46E5'},{label:'Salario',value:byType.salary,color:'#0EA5E9'},{label:'Comisión',value:byType.commission,color:'#F97316'}],{size:130})}<div class="chart-legend">${[['#4F46E5','Por hora'],['#0EA5E9','Salario'],['#F97316','Comisión']].map(([c,l])=>`<div class="chart-legend-item"><div class="legend-dot" style="background:${c}"></div>${l}</div>`).join('')}</div></div>
+      <div class="chart-wrap"><div class="chart-title">Nómina por mes</div>${barChart(nomByMo,{color:'#EF4444'})}</div>
+    </div>`;
+}
+
+/* ── SETTINGS ── */
+function renderSettings(){
+  const u=me();
+  const isAdmin=S.role==='admin';
+  const sections=isAdmin?['Mi cuenta','Academia','Categorías','Stripe Connect','Año fiscal','Branding','Notificaciones','Plan y facturación']:['Mi cuenta','Notificaciones'];
+  return`<div class="page"><div class="page-hdr"><div class="page-title">Configuración</div></div>
+    <div class="settings-wrap">
+      <div class="settings-nav">${sections.map((s,i)=>`<div class="settings-nav-item${i===0?' active':''}" onclick="this.parentElement.querySelectorAll('.settings-nav-item').forEach(x=>x.classList.remove('active'));this.classList.add('active')">${s}</div>`).join('')}</div>
+      <div class="settings-body">
+        <div class="card card-body mb-5" style="margin-bottom:20px"><div class="card-title mb-4" style="margin-bottom:16px">Mi cuenta</div>
+          <div class="fc-row"><div class="fg"><label>Nombre</label><input class="fc" value="${esc(u?.first_name||'')}"></div><div class="fg"><label>Apellido</label><input class="fc" value="${esc(u?.last_name||'')}"></div></div>
+          <div class="fg"><label>Correo electrónico</label><input class="fc" type="email" value="${esc(u?.email||'')}"></div>
+          <div class="fg"><label>Teléfono</label><input class="fc" value="${esc(u?.phone||'')}"></div>
+          <div class="fc-actions"><button class="btn btn-primary" data-action="save-profile">Guardar cambios</button></div>
+        </div>
+        ${isAdmin?`<div class="card card-body mb-5" style="margin-bottom:20px"><div class="card-title mb-4" style="margin-bottom:16px">Academia</div><div class="fg"><label>Nombre de la academia</label><input class="fc" value="${esc(academy()?.name||'')}"></div><div class="fc-actions"><button class="btn btn-primary" data-action="save-academy">Guardar</button></div></div>
+        <div class="card card-body mb-5" style="margin-bottom:20px"><div class="card-title mb-4" style="margin-bottom:16px">Stripe Connect</div><div style="display:flex;align-items:center;gap:12px;padding:16px;background:var(--bg);border-radius:var(--radius-sm)"><span class="stripe-badge">stripe</span><div><div style="font-weight:600">Cuenta Stripe no conectada</div><div class="text-sm text-muted">Conecta tu cuenta para recibir pagos con tarjeta</div></div><button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="showToast('Stripe Connect simulado — sin integración real','warning')">Conectar Stripe</button></div></div>
+        <div class="card card-body"><div class="card-title mb-4" style="margin-bottom:16px">Branding</div><div class="fg"><label>Color primario</label><input type="color" value="#4F46E5" oninput="document.documentElement.style.setProperty('--accent',this.value)"></div></div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PANELS
+═══════════════════════════════════════════════════════════ */
+/* ── PANEL BUILDERS ── */
+function panelCashPayment(enrollId){
+  const enroll=enrollId?db.enrollments.find(e=>e.id===enrollId):null;
+  const student=enroll?db.users.find(u=>u.id===enroll.student_id):null;
+  const catId=enroll?api._classCats(enroll.class_id)[0]:null;
+  const cat=catId?api._cat(catId):null;
+  const pendingEnrolls=db.enrollments.filter(e=>e.status==='active').slice(0,20);
+  const enrollOpts=pendingEnrolls.map(e=>{const s=db.users.find(u=>u.id===e.student_id)||{};const c=db.classes.find(x=>x.id===e.class_id)||{};return`<option value="${e.id}"${e.id===enrollId?' selected':''}>${esc(s.first_name||'')} ${esc(s.last_name||'')} – ${esc(c.name||'')}</option>`;}).join('');
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Registrar pago en efectivo</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><form id="cash-form">
+      <div class="fg"><label>Inscripción</label><select class="fc" name="enrollment_id" required>${enrollOpts}</select></div>
+      <div class="fg"><label>Monto</label><input class="fc" type="number" name="amount" value="${cat?.monthly_fee||500}" step="0.01" required></div>
+      <div class="fg"><label>Método de pago</label><select class="fc" name="method"><option value="cash">Efectivo</option><option value="transfer">Transferencia</option><option value="check">Cheque</option></select></div>
+      <div class="fg"><label>Notas</label><textarea class="fc" name="notes" rows="2" placeholder="Opcional…"></textarea></div>
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">Confirmar cobro</button></div>
+    </form></div>`);
+  document.getElementById('cash-form').onsubmit=e=>{
+    e.preventDefault();
+    const f=new FormData(e.target);
+    const res=api.createCashPayment(f.get('enrollment_id'),f.get('amount'),f.get('method'),f.get('notes'));
+    if(res.error){showToast(res.message,'error');return;}
+    closePanel();showToast('Pago registrado. Factura generada.','success');renderPage();
+  };
+}
+
+function panelStripePayment(enrollId){
+  const enroll=db.enrollments.find(e=>e.id===enrollId);if(!enroll)return;
+  const cls=db.classes.find(c=>c.id===enroll.class_id)||{};
+  const catId=api._classCats(enroll.class_id)[0];
+  const cat=catId?api._cat(catId):{monthly_fee:500};
+  const initRes=api.initiatePayment(enrollId);
+  openModal(`<div class="modal-hdr"><span class="modal-title">Pago con tarjeta</span><button class="panel-close" data-action="close-modal">✕</button></div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span class="stripe-badge">stripe</span><span class="text-sm text-muted">Pago seguro simulado</span></div>
+      <div style="background:var(--accent-l);border-radius:var(--radius-sm);padding:12px;margin-bottom:20px"><div style="font-weight:600">${esc(cls.name||'')}</div><div class="text-sm text-muted">Mensualidad: <strong>${fmt(cat.monthly_fee)}</strong></div></div>
+      <div class="fg"><label>Número de tarjeta</label><div class="card-input">4242 4242 4242 4242</div></div>
+      <div class="fc-row"><div class="fg"><label>Vencimiento</label><div class="card-input">12/27</div></div><div class="fg"><label>CVV</label><div class="card-input">123</div></div></div>
+      <div class="fg"><label>Nombre del titular</label><input class="fc" value="${esc(me()?.first_name||'')} ${esc(me()?.last_name||'')}"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-action="close-modal">Cancelar</button><button class="btn btn-primary" id="stripe-confirm-btn" data-action="stripe-confirm" data-pi="${initRes.payment_intent_id}" data-enroll="${enrollId}">Pagar ${fmt(cat.monthly_fee)}</button></div>`);
+}
+
+function panelEnrollStudent(classId){
+  const cls=db.classes.find(c=>c.id===classId);if(!cls)return;
+  const ccats=api._classCats(classId);
+  const eligibleStudents=db.users.filter(u=>u.role==='student'&&u.is_active&&api._studentCats(u.id).some(c=>ccats.includes(c)));
+  const full=cls.max_students&&api._activeCount(classId)>=cls.max_students;
+  const opts=eligibleStudents.map(s=>`<option value="${s.id}">${esc(s.first_name)} ${esc(s.last_name)}</option>`).join('');
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Inscribir en ${esc(cls.name)}</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body">${full?`<div style="background:var(--warning-l);border-radius:var(--radius-sm);padding:12px;margin-bottom:16px;color:#92400E">⚠️ Esta clase está llena (${api._activeCount(classId)}/${cls.max_students}). El estudiante entrará a la lista de espera.</div>`:''}
+    <form id="enroll-form">
+      <div class="fg"><label>Estudiante</label><select class="fc" name="student_id" required>${opts||'<option>Sin estudiantes elegibles</option>'}</select></div>
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">${full?'Agregar a lista de espera':'Inscribir'}</button></div>
+    </form></div>`);
+  document.getElementById('enroll-form').onsubmit=e=>{
+    e.preventDefault();
+    const sid=new FormData(e.target).get('student_id');
+    const res=api.createEnrollment(sid,classId);
+    if(res.error){showToast(res.message,'error');return;}
+    closePanel();showToast(res.message,'success');renderPage();
+  };
+}
+
+function panelEditClass(classId){
+  const cls=classId?db.classes.find(c=>c.id===classId):null;
+  const cats=db.categories;
+  const selectedCats=classId?api._classCats(classId):[];
+  const instrs=db.users.filter(u=>u.role==='instructor'&&u.is_active);
+  openPanel(`<div class="panel-hdr"><span class="panel-title">${cls?'Editar clase':'Nueva clase'}</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><form id="class-form">
+      <div class="fg"><label>Nombre</label><input class="fc" name="name" value="${esc(cls?.name||'')}" required></div>
+      <div class="fg"><label>Instructor</label><select class="fc" name="instructor_id" required>${instrs.map(i=>`<option value="${i.id}"${cls?.instructor_id===i.id?' selected':''}>${esc(i.first_name)} ${esc(i.last_name)}</option>`).join('')}</select></div>
+      <div class="fc-row">
+        <div class="fg"><label>Día</label><select class="fc" name="schedule_day">${Object.entries(DAYS).map(([v,l])=>`<option value="${v}"${cls?.schedule_day===v?' selected':''}>${l}</option>`).join('')}</select></div>
+        <div class="fg"><label>Hora</label><input class="fc" type="time" name="schedule_time" value="${cls?.schedule_time||'09:00'}"></div>
+      </div>
+      <div class="fc-row">
+        <div class="fg"><label>Duración (min)</label><input class="fc" type="number" name="duration_minutes" value="${cls?.duration_minutes||60}"></div>
+        <div class="fg"><label>Cupo máximo</label><input class="fc" type="number" name="max_students" value="${cls?.max_students||20}"></div>
+      </div>
+      <div class="fg"><label>Categorías</label>${cats.map(c=>`<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><input type="checkbox" name="cats" value="${c.id}"${selectedCats.includes(c.id)?' checked':''}> ${chip(c.name,c.color)} ${esc(c.name)}</label>`).join('')}</div>
+      <div class="fg"><label>Ubicación</label><input class="fc" name="location" value="${esc(cls?.location||'')}"></div>
+      <div class="fg"><label>Estado</label><select class="fc" name="status"><option value="active"${(!cls||cls.status==='active')?' selected':''}>Activo</option><option value="draft"${cls?.status==='draft'?' selected':''}>Borrador</option><option value="archived"${cls?.status==='archived'?' selected':''}>Archivado</option></select></div>
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">${cls?'Guardar cambios':'Crear clase'}</button></div>
+    </form></div>`);
+  document.getElementById('class-form').onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    const data={name:fd.get('name'),instructor_id:fd.get('instructor_id'),schedule_day:fd.get('schedule_day'),schedule_time:fd.get('schedule_time'),duration_minutes:+fd.get('duration_minutes'),max_students:+fd.get('max_students')||null,location:fd.get('location'),status:fd.get('status'),category_ids:fd.getAll('cats')};
+    if(cls)api.updateClass(classId,data);else api.createClass(data);
+    closePanel();showToast(cls?'Clase actualizada':'Clase creada','success');renderPage();
+  };
+}
+
+function panelEditCat(catId){
+  const cat=catId?api._cat(catId):null;
+  openPanel(`<div class="panel-hdr"><span class="panel-title">${cat?'Editar categoría':'Nueva categoría'}</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><form id="cat-form">
+      <div class="fg"><label>Nombre</label><input class="fc" name="name" value="${esc(cat?.name||'')}" required></div>
+      <div class="fg"><label>Descripción</label><textarea class="fc" name="description" rows="2">${esc(cat?.description||'')}</textarea></div>
+      <div class="fc-row">
+        <div class="fg"><label>Color</label><input type="color" class="fc" name="color" value="${cat?.color||'#6B7280'}" style="height:40px;padding:4px"></div>
+        <div class="fg"></div>
+      </div>
+      <div class="fc-row">
+        <div class="fg"><label>Mensualidad (MXN)</label><input class="fc" type="number" name="monthly_fee" value="${cat?.monthly_fee||0}" step="0.01"></div>
+        <div class="fg"><label>Matrícula (MXN)</label><input class="fc" type="number" name="enrollment_fee" value="${cat?.enrollment_fee||0}" step="0.01"></div>
+      </div>
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">${cat?'Guardar':'Crear'}</button></div>
+    </form></div>`);
+  document.getElementById('cat-form').onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    const data={name:fd.get('name'),description:fd.get('description'),color:fd.get('color'),monthly_fee:+fd.get('monthly_fee'),enrollment_fee:+fd.get('enrollment_fee')};
+    if(cat)api.updateCategory(catId,data);else api.createCategory(data);
+    closePanel();showToast(cat?'Categoría actualizada':'Categoría creada','success');renderPage();
+  };
+}
+
+function panelAssignCats(userId){
+  const u=db.users.find(x=>x.id===userId);if(!u)return;
+  const assigned=api._studentCats(userId);
+  const cats=db.categories;
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Categorías de ${esc(u.first_name)}</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><p class="text-sm text-muted mb-4" style="margin-bottom:16px">Las categorías determinan qué clases puede ver e inscribir este estudiante.</p>
+    <form id="cats-form">
+      ${cats.map(c=>`<label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;cursor:pointer"><input type="checkbox" name="cat" value="${c.id}"${assigned.includes(c.id)?' checked':''}> ${chip(c.name,c.color)} <div><div style="font-weight:600">${esc(c.name)}</div><div class="text-xs text-muted">${fmt(c.monthly_fee)}/mes · Matrícula: ${fmt(c.enrollment_fee)}</div></div></label>`).join('')}
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">Asignar</button></div>
+    </form></div>`);
+  document.getElementById('cats-form').onsubmit=e=>{
+    e.preventDefault();
+    const selected=Array.from(e.target.querySelectorAll('input[name="cat"]:checked')).map(x=>x.value);
+    api.assignUserCategories(userId,selected);
+    closePanel();showToast('Categorías asignadas','success');renderPage();
+  };
+}
+
+function panelAttendance(classId){
+  const cls=db.classes.find(c=>c.id===classId);if(!cls)return;
+  const enrolled=db.enrollments.filter(e=>e.class_id===classId&&e.status==='active');
+  const rows=enrolled.map(e=>{
+    const s=db.users.find(u=>u.id===e.student_id)||{};
+    return`<div class="att-row"><div class="att-name">${esc(s.first_name)} ${esc(s.last_name)}</div><div class="att-opts"><div class="att-opt present sel" data-val="present" data-sid="${s.id}">P</div><div class="att-opt absent" data-val="absent" data-sid="${s.id}">A</div><div class="att-opt excused" data-val="excused" data-sid="${s.id}">J</div></div></div>`;
+  }).join('');
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Asistencia – ${esc(cls.name)}</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body">
+      <div class="fg"><label>Fecha de sesión</label><input class="fc" type="date" id="att-date" value="${today()}"></div>
+      <div id="att-rows">${rows||'<p class="text-muted text-sm">Sin estudiantes inscritos.</p>'}</div>
+      <div class="fc-actions" style="margin-top:12px"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="button" class="btn btn-primary" id="att-submit">Guardar asistencia</button></div>
+    </div>`);
+  // toggle switches
+  document.getElementById('panel-drawer').querySelectorAll('.att-opt').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const parent=btn.closest('.att-opts');
+      parent.querySelectorAll('.att-opt').forEach(b=>{b.classList.remove('sel');});
+      btn.classList.add('sel');
+    });
+  });
+  document.getElementById('att-submit').onclick=()=>{
+    const date=document.getElementById('att-date').value;
+    const records=[];
+    document.getElementById('panel-drawer').querySelectorAll('.att-row').forEach(row=>{
+      const sel=row.querySelector('.att-opt.sel');if(!sel)return;
+      records.push({student_id:sel.dataset.sid,status:sel.dataset.val});
+    });
+    api.recordAttendance(classId,date,records);
+    closePanel();showToast(`Asistencia registrada para ${records.length} estudiantes`,'success');renderPage();
+  };
+}
+
+function panelPayroll(userId){
+  const insts=db.users.filter(u=>u.role==='instructor'&&u.is_active);
+  const mo=monthStr(0);
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Registrar pago de nómina</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><form id="payroll-form">
+      <div class="fg"><label>Instructor</label><select class="fc" name="recipient_id" required>${insts.map(i=>{const ua=db.user_academies.find(x=>x.user_id===i.id);const h=api._instructorHours(i.id,`${mo}-01`,today());return`<option value="${i.id}"${i.id===userId?' selected':''}>${esc(i.first_name)} ${esc(i.last_name)} (${h.toFixed(1)}h est. ${fmt(h*(ua?.hourly_rate||0))})</option>`;}).join('')}</select></div>
+      <div class="fc-row">
+        <div class="fg"><label>Período inicio</label><input class="fc" type="date" name="period_start" value="${mo}-01"></div>
+        <div class="fg"><label>Período fin</label><input class="fc" type="date" name="period_end" value="${mo}-30"></div>
+      </div>
+      <div class="fg"><label>Monto (MXN)</label><input class="fc" type="number" name="amount" step="0.01" required></div>
+      <div class="fg"><label>Método de pago</label><select class="fc" name="method"><option value="transfer">Transferencia</option><option value="cash">Efectivo</option><option value="check">Cheque</option></select></div>
+      <div class="fg"><label>Notas</label><textarea class="fc" name="notes" rows="2"></textarea></div>
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">Registrar pago</button></div>
+    </form></div>`);
+  document.getElementById('payroll-form').onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    api.createPayroll(fd.get('recipient_id'),fd.get('amount'),fd.get('method'),fd.get('period_start'),fd.get('period_end'),fd.get('notes'));
+    closePanel();showToast('Pago de nómina registrado','success');renderPage();
+  };
+}
+
+function panelCreateExpense(){
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Registrar gasto</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><form id="expense-form">
+      <div class="fg"><label>Categoría</label><select class="fc" name="subcategory"><option value="rent">Renta</option><option value="utilities">Servicios</option><option value="marketing">Marketing</option><option value="maintenance">Mantenimiento</option><option value="equipment">Equipamiento</option><option value="other">Otro</option></select></div>
+      <div class="fg"><label>Monto (MXN)</label><input class="fc" type="number" name="amount" step="0.01" required></div>
+      <div class="fg"><label>Método</label><select class="fc" name="method"><option value="transfer">Transferencia</option><option value="cash">Efectivo</option><option value="check">Cheque</option></select></div>
+      <div class="fg"><label>Notas</label><textarea class="fc" name="notes" rows="2" placeholder="Descripción del gasto…"></textarea></div>
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">Registrar</button></div>
+    </form></div>`);
+  document.getElementById('expense-form').onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    api.createExpense(fd.get('subcategory'),fd.get('amount'),fd.get('method'),fd.get('notes'));
+    closePanel();showToast('Gasto registrado','success');renderPage();
+  };
+}
+
+function panelCreateStudent(){
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Nuevo estudiante</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><form id="student-form">
+      <div class="fc-row"><div class="fg"><label>Nombre</label><input class="fc" name="first_name" required></div><div class="fg"><label>Apellido</label><input class="fc" name="last_name" required></div></div>
+      <div class="fg"><label>Correo electrónico</label><input class="fc" type="email" name="email" required></div>
+      <div class="fg"><label>Teléfono</label><input class="fc" name="phone"></div>
+      <div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">Crear estudiante</button></div>
+    </form></div>`);
+  document.getElementById('student-form').onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    api.createUser({first_name:fd.get('first_name'),last_name:fd.get('last_name'),email:fd.get('email'),phone:fd.get('phone'),role:'student'});
+    closePanel();showToast('Estudiante creado','success');renderPage();
+  };
+}
+
+function panelWaitlist(classId){
+  const{waiting_list,total_waiting}=api.getClassWaitingList(classId);
+  const cls=db.classes.find(c=>c.id===classId)||{};
+  const rows=waiting_list.map(e=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)"><div style="width:24px;height:24px;background:var(--accent-l);color:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${e.waiting_position}</div><div style="flex:1"><div style="font-weight:600">${esc(e.student_name)}</div><div class="text-xs text-muted">En espera desde ${fmtDate(e.waitlisted_at?.slice(0,10)||'')}</div></div><button class="btn btn-danger btn-sm" data-action="cancel-enroll" data-enroll-id="${e.id}">Quitar</button></div>`).join('');
+  openPanel(`<div class="panel-hdr"><span class="panel-title">Lista de espera – ${esc(cls.name)}</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body"><div class="sc-label">${total_waiting} estudiante${total_waiting!==1?'s':''} en espera</div><div style="margin-top:12px">${rows||'<p class="text-muted text-sm">Sin estudiantes en lista de espera.</p>'}</div></div>`);
+}
+
+function panelStudentDetail(userId){
+  const u=db.users.find(x=>x.id===userId);if(!u)return;
+  const enrolments=db.enrollments.filter(e=>e.student_id===userId&&e.status!=='cancelled');
+  const txns=db.transactions.filter(t=>t.student_id===userId).slice(0,8);
+  const cats=api._studentCats(userId).map(id=>db.categories.find(c=>c.id===id)).filter(Boolean);
+  const att=db.attendance.filter(a=>a.user_id===userId);
+  const attR=att.length?Math.round(att.filter(a=>a.status==='present').length/att.length*100):0;
+  const debt=txns.filter(t=>t.type==='income'&&t.status==='pending').reduce((s,t)=>s+t.amount,0);
+  openPanel(`<div class="panel-hdr"><span class="panel-title">${esc(u.first_name)} ${esc(u.last_name)}</span><button class="panel-close" data-action="close-panel">✕</button></div>
+    <div class="panel-body">
+      <div style="display:flex;gap:12px;margin-bottom:16px">
+        <div class="h-avatar" style="width:48px;height:48px;font-size:18px">${u.first_name[0]}${(u.last_name||'')[0]||''}</div>
+        <div><div style="font-weight:600">${esc(u.first_name)} ${esc(u.last_name)}</div><div class="text-sm text-muted">${esc(u.email)}</div><div class="text-sm text-muted">${esc(u.phone||'')}</div></div>
+      </div>
+      <div class="grid-2 gap-3 mb-4" style="gap:10px;margin-bottom:14px">${[['Asistencia',`${attR}%`],['Deuda',fmt(debt)]].map(([l,v])=>`<div class="scorecard" style="padding:12px"><div class="sc-label">${l}</div><div style="font-size:18px;font-weight:700">${v}</div></div>`).join('')}</div>
+      <div style="margin-bottom:12px"><div class="sc-label" style="margin-bottom:6px">Categorías</div>${cats.map(c=>chip(c.name,c.color)).join(' ')||'<span class="text-muted text-sm">Sin categorías</span>'}</div>
+      <div style="margin-bottom:12px"><div class="sc-label" style="margin-bottom:6px">Inscripciones activas</div>${enrolments.map(e=>{const cls=db.classes.find(c=>c.id===e.class_id)||{};return`<div class="text-sm" style="padding:5px 0;border-bottom:1px solid var(--border)">${esc(cls.name||'—')} – ${badge(e.status)}</div>`;}).join('')||'<span class="text-muted text-sm">Sin inscripciones</span>'}</div>
+      <div class="fc-actions"><button class="btn btn-primary" data-action="open-cash-payment" data-enroll-id="${enrolments[0]?.id||''}">Registrar pago</button>${S.role==='admin'?`<button class="btn btn-ghost" data-action="open-assign-cats" data-user-id="${userId}">Asignar cats</button>`:''}</div>
+    </div>`);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EVENTS + INIT
+═══════════════════════════════════════════════════════════ */
+/* ── GLOBAL CLICK HANDLER ── */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-action]');
+  if(!t)return;
+  e.preventDefault();
+  const{action,...d}=t.dataset;
+  switch(action){
+    case 'navigate': navigate(d.route);break;
+    case 'login': S.role='admin';S.userId=ROLE_USERS.admin;document.getElementById('role-select').value='admin';navigate('/profile');showToast('Sesión iniciada como Admin','success');break;
+    case 'reset-demo': resetDemo();break;
+    case 'close-panel': closePanel();break;
+    case 'close-modal': closeModal();break;
+    case 'open-cash-payment': panelCashPayment(d.enrollId||'');break;
+    case 'open-stripe-payment': panelStripePayment(d.enrollId);break;
+    case 'open-enroll-student': panelEnrollStudent(d.classId);break;
+    case 'open-create-class': panelEditClass(null);break;
+    case 'open-edit-class': panelEditClass(d.classId);break;
+    case 'open-create-cat': panelEditCat(null);break;
+    case 'open-edit-cat': panelEditCat(d.catId);break;
+    case 'open-assign-cats': panelAssignCats(d.userId);break;
+    case 'open-attendance': panelAttendance(d.classId);break;
+    case 'open-payroll': panelPayroll(d.userId||'');break;
+    case 'open-create-expense': panelCreateExpense();break;
+    case 'open-create-student': panelCreateStudent();break;
+    case 'open-invite-student': showToast('Invitación enviada por correo (simulado)','success');break;
+    case 'open-waitlist': panelWaitlist(d.classId);break;
+    case 'open-student-detail': panelStudentDetail(d.userId);break;
+    case 'open-edit-student':{const u=db.users.find(x=>x.id===d.userId);if(u)openPanel(`<div class="panel-hdr"><span class="panel-title">Editar – ${esc(u.first_name)}</span><button class="panel-close" data-action="close-panel">✕</button></div><div class="panel-body"><form id="edit-user-form"><div class="fc-row"><div class="fg"><label>Nombre</label><input class="fc" name="first_name" value="${esc(u.first_name)}" required></div><div class="fg"><label>Apellido</label><input class="fc" name="last_name" value="${esc(u.last_name)}" required></div></div><div class="fg"><label>Teléfono</label><input class="fc" name="phone" value="${esc(u.phone||'')}"></div><div class="fc-actions"><button type="button" class="btn btn-secondary" data-action="close-panel">Cancelar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div>`);document.getElementById('edit-user-form')?.addEventListener('submit',ev=>{ev.preventDefault();const fd=new FormData(ev.target);api.updateUser(d.userId,{first_name:fd.get('first_name'),last_name:fd.get('last_name'),phone:fd.get('phone')});closePanel();showToast('Estudiante actualizado','success');renderPage();});break;}
+    case 'enroll-student-self':{const res=api.createEnrollment(S.userId,d.classId);if(res.error)showToast(res.message,'error');else{showToast(res.message,'success');renderPage();}break;}
+    case 'confirm-cancel-enroll':{if(confirm('¿Cancelar esta inscripción?')){api.deleteEnrollment(d.enrollId);renderPage();}break;}
+    case 'cancel-enroll':{api.deleteEnrollment(d.enrollId);closePanel();renderPage();break;}
+    case 'delete-cat':{const c=api._cat(d.catId);const clsCount=db.class_categories.filter(x=>x.category_id===d.catId).length;const stuCount=db.student_categories.filter(x=>x.category_id===d.catId).length;if(confirm(`Eliminar "${c?.name}"?\n${clsCount} clases y ${stuCount} estudiantes asociados serán desvinculados.`)){api.deleteCategory(d.catId);showToast('Categoría eliminada','success');renderPage();}break;}
+    case 'save-profile': showToast('Perfil actualizado','success');break;
+    case 'save-academy': showToast('Academia actualizada','success');break;
+    case 'stripe-confirm':{
+      const piId=t.dataset.pi;const enrollId=t.dataset.enroll;
+      t.textContent='Procesando…';t.disabled=true;
+      setTimeout(()=>{
+        const res=api.confirmPayment(piId,enrollId);
+        closeModal();
+        if(res.error){showToast('Pago fallido','error');return;}
+        showToast('¡Pago exitoso! Factura generada.','success');renderPage();
+      },1200);
+      break;}
+    case '': break;
+  }
+});
+
+/* ── ROLE SELECTOR ── */
+document.getElementById('role-select').addEventListener('change',e=>{
+  S.role=e.target.value;
+  S.userId=ROLE_USERS[S.role];
+  // redirect to valid route for role
+  const adminRoutes=['/students','/instructors','/categories','/sales','/dashboard','/dashboard/ingresos','/dashboard/gastos','/dashboard/pl','/dashboard/nomina'];
+  if((S.role==='student'||S.role==='instructor')&&adminRoutes.includes(S.route))S.route='/profile';
+  if(S.role==='receptionist'&&['/categories','/dashboard','/dashboard/ingresos','/dashboard/gastos','/dashboard/pl','/dashboard/nomina'].includes(S.route))S.route='/profile';
+  navigate(S.route);
+  showToast(`Vista cambiada a ${({admin:'Admin',receptionist:'Recepcionista',instructor:'Instructor',student:'Estudiante'})[S.role]}`,'success');
+});
+
+/* ── INIT ── */
+function init(){
+  loadDb();
+  S.route=location.hash.slice(1)||'/profile';
+  renderAll();
+  window.addEventListener('hashchange',()=>{
+    const r=location.hash.slice(1)||'/profile';
+    if(r!==S.route){S.route=r;renderShell();renderPage();}
+  });
+}
+init();
+
+</script>
+</body>
+</html>
